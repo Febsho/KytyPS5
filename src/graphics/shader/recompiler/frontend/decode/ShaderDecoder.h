@@ -221,6 +221,7 @@ enum class Opcode {
 	V_COS_F16,
 	V_SIN_F32,
 	V_COS_F32,
+	V_SWAP_B32,
 	V_NOT_B32,
 	V_BFREV_B32,
 	V_FFBH_U32,
@@ -745,6 +746,7 @@ enum class Opcode {
 	S_TRAP,
 	S_TTRACEDATA,
 	S_INST_PREFETCH,
+	S_CLAUSE,
 	S_ENDPGM,
 	EXP,
 	COUNT

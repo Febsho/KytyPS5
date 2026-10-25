@@ -37,6 +37,7 @@ constexpr auto MakeContextDispatchTable() {
 	g_hw_ctx_func[Pm4::DB_STENCIL_CONTROL]             = HwCtxSetStencilControl;
 	g_hw_ctx_func[Pm4::DB_STENCILREFMASK]              = HwCtxSetStencilMask;
 	g_hw_ctx_func[Pm4::SPI_PS_INPUT_CNTL_0]            = HwCtxSetPsInput;
+	g_hw_ctx_func[Pm4::SPI_INTERP_CONTROL_0]          = HwCtxSetSpiInterpControl;
 	g_hw_ctx_func[Pm4::SPI_TMPRING_SIZE]               = HwCtxSetSpiTmpringSize;
 	g_hw_ctx_func[Pm4::DB_DEPTH_CONTROL]               = HwCtxSetDepthControl;
 	g_hw_ctx_func[Pm4::DB_EQAA]                        = HwCtxSetEqaaControl;
@@ -55,6 +56,7 @@ constexpr auto MakeContextDispatchTable() {
 	g_hw_ctx_func[Pm4::PA_SU_POLY_OFFSET_BACK_OFFSET]  = HwCtxSetPolyOffsetRegisters;
 	g_hw_ctx_func[Pm4::PA_CL_VTE_CNTL]                 = HwCtxSetViewportTransformControl;
 	g_hw_ctx_func[Pm4::PA_SU_LINE_CNTL]                = HwCtxSetLineControl;
+	g_hw_ctx_func[Pm4::PA_SC_LINE_CNTL]                = HwCtxSetPaScLineControl;
 	g_hw_ctx_func[Pm4::PA_SC_FOV_WINDOW_LR]            = HwCtxSetFovWindow;
 	g_hw_ctx_func[Pm4::PA_SC_FOV_WINDOW_TB]            = HwCtxSetFovWindow;
 	g_hw_ctx_func[Pm4::PA_SC_MODE_CNTL_0]              = HwCtxSetScanModeControl;

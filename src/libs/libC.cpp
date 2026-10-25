@@ -716,6 +716,10 @@ int KYTY_SYSV_ABI atoi(const char* str) {
 	return ::atoi(str);
 }
 
+char* KYTY_SYSV_ABI getenv(const char* name) {
+	return name != nullptr ? ::getenv(name) : nullptr;
+}
+
 float KYTY_SYSV_ABI sinf(float x) {
 	return std::sin(x);
 }
@@ -789,6 +793,7 @@ LIB_DEFINE(InitLibcInternal_1) {
 	LIB_FUNC("QxmSHBCuKTk", LibcInternal::strtoul);
 	LIB_FUNC("zlfEH8FmyUA", LibcInternal::strtoul);
 	LIB_FUNC("fPxypibz2MY", LibcInternal::atoi);
+	LIB_FUNC("smbQukfxYJM", LibcInternal::getenv);
 	LIB_FUNC("Q4rRL34CEeE", LibcInternal::sinf);
 	LIB_FUNC("-P6FNMzk2Kc", LibcInternal::cosf);
 	LIB_FUNC("pztV4AF18iI", LibcInternal::sincosf);

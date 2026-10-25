@@ -37,6 +37,10 @@ struct CommandBuffer;
 struct Label;
 
 int KYTY_SYSV_ABI   AgcInit(uint32_t* state, uint32_t ver);
+void* KYTY_SYSV_ABI AgcGetRegisterDefaults();
+int KYTY_SYSV_ABI   AgcLinkShaders(ShaderRegister* context, ShaderRegister* primitive,
+                                   const void* reserved, const Shader* vertex, const Shader* pixel,
+                                   uint32_t primitive_type);
 void* KYTY_SYSV_ABI AgcGetRegisterDefaults2(uint32_t ver);
 void* KYTY_SYSV_ABI AgcGetRegisterDefaults2Internal(uint32_t ver);
 int KYTY_SYSV_ABI   AgcCreateShader(Shader** dst, void* header, const volatile void* code);
@@ -111,6 +115,7 @@ uint32_t KYTY_SYSV_ABI  AgcCbSetShRegisterRangeDirectGetSize(uint32_t num_values
 uint32_t* KYTY_SYSV_ABI AgcCbSetShRegistersDirect(CommandBuffer*                 buf,
                                                   const volatile ShaderRegister* regs,
                                                   uint32_t                       num_regs);
+uint32_t KYTY_SYSV_ABI  AgcCbSetShRegistersDirectGetSize(uint32_t num_regs);
 uint32_t* KYTY_SYSV_ABI AgcCbSetUcRegistersDirect(CommandBuffer*                 buf,
                                                   const volatile ShaderRegister* regs,
                                                   uint32_t                       num_regs);
@@ -146,6 +151,7 @@ uint64_t KYTY_SYSV_ABI AgcDcbSetShRegistersIndirectGetSize();
 uint32_t* KYTY_SYSV_ABI AgcDcbSetUcRegistersIndirect(CommandBuffer*                 buf,
                                                      const volatile ShaderRegister* regs,
                                                      uint32_t                       num_regs);
+uint64_t KYTY_SYSV_ABI  AgcDcbSetUcRegistersIndirectGetSize();
 uint32_t* KYTY_SYSV_ABI AgcDcbSetIndexSize(CommandBuffer* buf, uint8_t index_size,
                                            uint8_t cache_policy);
 uint32_t* KYTY_SYSV_ABI AgcDcbSetIndexBuffer(CommandBuffer* buf, uint64_t index_addr);
@@ -230,6 +236,7 @@ uint64_t KYTY_SYSV_ABI  AgcAcbCopyDataGetSize();
 uint32_t* KYTY_SYSV_ABI AgcAcbDispatchIndirect(CommandBuffer*       buf,
                                                const volatile void* indirect_args,
                                                uint32_t             modifier);
+uint32_t KYTY_SYSV_ABI  AgcAcbDispatchIndirectGetSize();
 uint32_t* KYTY_SYSV_ABI AgcAcbWriteData(CommandBuffer* buf, uint8_t dst, uint8_t cache_policy,
                                         uint64_t address_or_offset, const void* data,
                                         uint32_t num_dwords, uint8_t increment,
@@ -337,7 +344,12 @@ int KYTY_SYSV_ABI AgcDriverAddEqEvent(LibKernel::EventQueue::KernelEqueue eq, in
 int KYTY_SYSV_ABI AgcDriverDeleteEqEvent(LibKernel::EventQueue::KernelEqueue eq, int id);
 int KYTY_SYSV_ABI AgcDriverGetEqEventType(const LibKernel::EventQueue::KernelEvent* ev);
 uint32_t KYTY_SYSV_ABI AgcDriverGetEqContextId(const LibKernel::EventQueue::KernelEvent* ev);
+uint32_t KYTY_SYSV_ABI AgcDriverGetWaitRenderingPacketSizeInDwords();
+uint32_t KYTY_SYSV_ABI AgcDriverWaitUntilSafeForRendering(uint32_t** command,
+                                                         uint32_t capacity, uint32_t mode,
+                                                         uint32_t handle, int index);
 int KYTY_SYSV_ABI      AgcDriverSetTFRing(const volatile void* base, uint32_t size);
+int KYTY_SYSV_ABI      AgcDriverGetTFRing(uintptr_t* base, uint32_t* size);
 int KYTY_SYSV_ABI  AgcDriverSetHsOffchipParam(uint64_t value0, uint64_t value1, uint64_t value2);
 bool KYTY_SYSV_ABI AgcDriverIsCaptureInProgress();
 int KYTY_SYSV_ABI  AgcDriverRegisterDefaultOwner();

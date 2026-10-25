@@ -265,6 +265,7 @@ void Translator::EmitScalar(const Decoder::Instruction& inst) {
 		case O::S_PACK_HH_B32_B16: return PackB16(inst, true, true);
 
 		case O::S_NOP:
+		case O::S_CLAUSE:
 		case O::S_SLEEP:
 		case O::S_SETPRIO:
 		case O::S_TRAP: EmitControlNop(); return;

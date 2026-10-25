@@ -3816,6 +3816,43 @@ void TestNewShaderRecompilerCapturedFractF64() {
   }
 }
 
+void TestNewShaderRecompilerCapturedVSwapB32() {
+  using namespace ShaderRecompiler::Decoder;
+  const uint32_t captured[] = {0x7e04cb04u};
+  Instruction decoded;
+  DecodeInstruction(captured, 0, decoded);
+  Check(decoded.family == Family::VOP1 && decoded.opcode == Opcode::V_SWAP_B32 &&
+            decoded.opcode_id == 0x65u && decoded.word_count == 1u &&
+            decoded.dst.kind == OperandKind::Vgpr && decoded.dst.reg == 2u &&
+            decoded.src0.kind == OperandKind::Vgpr && decoded.src0.reg == 4u &&
+            decoded.src_count == 1u,
+        "captured V_SWAP_B32 did not decode its two VGPR operands");
+
+  const uint32_t shader[] = {captured[0], EncodeSopp(0x01)};
+  Program program;
+  DecodeProgram(shader, program);
+  ShaderComputeInputInfo compute{};
+  ShaderRecompiler::Frontend::TranslateOptions options{
+      .stage = ShaderType::Compute};
+  options.input_info.compute = &compute;
+  const auto translated = ShaderRecompiler::Frontend::TranslateProgram(
+      program, ShaderRecompiler::CFG::BuildGraph(program), options);
+  bool writes_destination = false;
+  bool writes_source = false;
+  for (const auto *block : translated.blocks) {
+    for (const auto &inst : *block) {
+      if (inst.GetOpcode() != ShaderRecompiler::IR::ValueOpcode::SetVectorRegister) {
+        continue;
+      }
+      const auto reg = ShaderRecompiler::IR::RegIndex(inst.Arg(0).VectorRegister());
+      writes_destination |= reg == 2u;
+      writes_source |= reg == 4u;
+    }
+  }
+  Check(writes_destination && writes_source,
+        "V_SWAP_B32 translation did not update both VGPR operands");
+}
+
 void TestNewShaderRecompilerF64AluEncodings() {
   using namespace ShaderRecompiler::Decoder;
   for (const bool maximum : {false, true}) {
@@ -4730,6 +4767,15 @@ void TestNewShaderDecoderArchitecture() {
             program.instructions.front().word_count ==
                 program_direct.word_count,
         "program decoder diverged from the single-instruction decoder");
+
+  const uint32_t s_clause_code[] = {EncodeSopp(0x21, 1), EncodeSopp(0x01, 0)};
+  Program s_clause_program;
+  ShaderRecompiler::Decoder::DecodeProgram(s_clause_code, s_clause_program);
+  Check(s_clause_program.instructions.size() == 2u &&
+            s_clause_program.instructions.front().opcode == Opcode::S_CLAUSE &&
+            s_clause_program.instructions.front().src_count == 1u &&
+            s_clause_program.instructions.front().src0.value == 1u,
+        "decoder rejected or misdecoded GFX10 S_CLAUSE");
 
   const uint32_t cmp_eq_u64_code[] = {0xd4e2006au, 0x0000d47eu};
   Instruction cmp_eq_u64;
@@ -6701,6 +6747,7 @@ void TestNewShaderRecompilerVintrpTranslation() {
   };
   ShaderPixelInputInfo flat_ps_info{};
   flat_ps_info.input_num = 1;
+  flat_ps_info.flat_shade_enable = true;
   SetIdentityInterpolatorSettings(&flat_ps_info);
   flat_ps_info.interpolator_settings[0] = 0x00000400u;
 
@@ -6805,6 +6852,7 @@ void TestCustomVintrpMovTranslation() {
   };
   ShaderPixelInputInfo flat_ps_info{};
   flat_ps_info.input_num = 1;
+  flat_ps_info.flat_shade_enable = true;
   flat_ps_info.interpolator_settings[0] = 0x00000400u;
   options.input_info.pixel = &flat_ps_info;
   auto flat_result = RecompileForTest(flat_shader, options);
@@ -6875,6 +6923,7 @@ void TestVop3F16InterpolationTranslation() {
   CheckSpirvBinaryValidates(result.spirv);
 
   ps_info.interpolator_settings[0] = 0x00000400u;
+  ps_info.flat_shade_enable = true;
   auto flat_result = RecompileForTest(shader, options);
   Check(SpirvExtInstCount(flat_result.spirv, 62u) == 2u &&
             !SpirvContainsCapability(flat_result.spirv, 5284u) &&
@@ -16750,6 +16799,7 @@ int main() {
   TestNewShaderRecompilerDsWideAndAtomicTranslation();
   TestNewShaderRecompilerCapturedVop1SdwaByteConvert();
   TestNewShaderRecompilerCapturedFractF64();
+  TestNewShaderRecompilerCapturedVSwapB32();
   TestNewShaderRecompilerF64AluEncodings();
   TestNewShaderRecompilerVop1SdwaBfrev();
   TestNewShaderRecompilerVop1SdwaNotDestination();

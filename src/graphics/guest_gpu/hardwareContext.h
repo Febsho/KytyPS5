@@ -542,6 +542,7 @@ struct GsStageRegisters {
 struct ShaderRegisters {
 	uint32_t m_spiVsOutConfig     = 0;
 	uint32_t m_spiShaderPosFormat = 0;
+	uint32_t m_spiInterpControl0  = 0;
 	uint32_t m_paClVsOutCntl      = 0;
 
 	uint32_t ps_interpolator_settings[32] = {0};
@@ -880,6 +881,7 @@ public:
 
 	void SetVsOutConfig(uint32_t value) { m_sh_regs.m_spiVsOutConfig = value; }
 	void SetShaderPosFormat(uint32_t value) { m_sh_regs.m_spiShaderPosFormat = value; }
+	void SetSpiInterpControl0(uint32_t value) { m_sh_regs.m_spiInterpControl0 = value; }
 	void SetClVsOutCntl(uint32_t value) { m_sh_regs.m_paClVsOutCntl = value; }
 	void SetShaderIdxFormat(uint32_t value) { m_sh_regs.m_spiShaderIdxFormat = value; }
 	void SetNggSubgrpCntl(uint32_t value) { m_sh_regs.m_geNggSubgrpCntl = value; }

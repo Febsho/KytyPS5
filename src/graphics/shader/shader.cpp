@@ -8,6 +8,7 @@
 #include "common/stringUtils.h"
 #include "graphics/guest_gpu/gpu_defs.h"
 #include "graphics/guest_gpu/graphicsRun.h"
+#include "graphics/guest_gpu/pm4.h"
 #include "graphics/guest_gpu/hardwareContext.h"
 #include "graphics/host_gpu/renderer/renderContext.h"
 #include "graphics/shader/recompiler/ShaderRecompiler.h"
@@ -317,12 +318,16 @@ static bool ShaderGetStaticVertexInputInfo(uint64_t shader_addr, const HW::UserS
 static void ShaderGetStaticInputInfoPS(
     const HW::PixelShaderInfo& regs, const HW::ShaderRegisters& sh,
     std::span<const Prospero::ColorComponentMapping, 8> target_export_mapping,
-	const ShaderMappedData& data, ShaderPixelInputInfo& ps_info) {
+	const ShaderMappedData& data, bool point_primitive, ShaderPixelInputInfo& ps_info) {
 	KYTY_PROFILER_FUNCTION();
 
 	ps_info = {};
 	ps_info.scratch_size_dwords = data.scratch_size_dwords;
 	ps_info.lds_size_dwords     = static_cast<uint32_t>(regs.ps_regs.rsrc2.extra_lds_size) * 128u;
+	ps_info.flat_shade_enable =
+	    KYTY_PM4_GET(sh.m_spiInterpControl0, SPI_INTERP_CONTROL_0, FLAT_SHADE_ENA) != 0;
+	ps_info.point_sprite_enable =
+	    KYTY_PM4_GET(sh.m_spiInterpControl0, SPI_INTERP_CONTROL_0, PNT_SPRITE_ENA) != 0;
 
 	// SPI_PS_IN_CONTROL: NUM_INTERP occupies bits 5:0 and PS_W32_EN is bit 15.
 	ps_info.input_num            = sh.ps_in_control & 0x3fu;
@@ -369,6 +374,8 @@ static void ShaderGetStaticInputInfoPS(
 
 	for (uint32_t i = 0; i < ps_info.input_num; i++) {
 		ps_info.interpolator_settings[i] = sh.ps_interpolator_settings[i];
+		EXIT_NOT_IMPLEMENTED(point_primitive &&
+		                    ShaderPixelParameterUsesPointSprite(ps_info, i));
 	}
 
 	ps_info.target_shader_mask = sh.m_cbShaderMask;
@@ -668,9 +675,9 @@ PrepareTessellationPrograms(const HW::VertexShaderInfo& regs, const HW::Context&
 ShaderParams PrepareProgram(
     const HW::PixelShaderInfo& regs, const HW::ShaderRegisters& sh,
     std::span<const Prospero::ColorComponentMapping, 8> target_export_mapping,
-    ShaderPixelInputInfo&                               ps_info) {
+	ShaderPixelInputInfo& ps_info, bool point_primitive) {
 	const auto [data, hash] = ShaderGetMappedData(regs.ps_regs.data_addr, "ShaderGetInputInfoPS():");
-	ShaderGetStaticInputInfoPS(regs, sh, target_export_mapping, data, ps_info);
+	ShaderGetStaticInputInfoPS(regs, sh, target_export_mapping, data, point_primitive, ps_info);
 	return GetShaderParams(
 	    regs.ps_regs.data_addr, hash,
 	    std::span<const uint32_t>(regs.ps_user_sgpr.value, regs.ps_regs.rsrc2.user_sgpr), data);

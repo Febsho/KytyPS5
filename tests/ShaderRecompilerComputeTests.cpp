@@ -10257,7 +10257,10 @@ public:
       registers.SetColorAttrib2(0, {.height = height - 1, .width = width - 1,
                                    .num_mip_levels = target.levels - 1});
       registers.SetColorAttrib3(0,
-                                {.tile_mode = target.tile,
+                                {// 2D array targets may set MIP0_DEPTH to their layer count;
+                                 // the view still selects the single attachment slice below.
+                                 .depth = is_1d ? 0u : 1u,
+                                 .tile_mode = target.tile,
                                  .dimension = target.dimension,
                                  .metadata_pipe_aligned = true});
       registers.SetRenderTargetMask(0x0f);

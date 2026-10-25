@@ -728,7 +728,14 @@ void PipelineCache::GetGraphicsPrograms(const CommandBuffer& command, DrawRender
 				        .export_mapping;
 			}
 		}
-		pixel_params      = PrepareProgram(pixel_regs, sh, target_export_mapping, pixel_info);
+		bool point_primitive = user_config.GetPrimType() == Prospero::PrimitiveType::kPointList;
+		if (tess_active) {
+			point_primitive = ((sh.m_vgtTfParam >> 5u) & 0x3u) == 0u;
+		} else if (mesh_active || vertex_regs.gs_regs.data_addr != 0) {
+			point_primitive = sh.m_vgtGsOutPrimType == 0u;
+		}
+		pixel_params = PrepareProgram(pixel_regs, sh, target_export_mapping, pixel_info,
+		                              point_primitive);
 		pixel_info.object_primitive_id = object_primitive_id;
 		for (uint32_t export_index = 0; export_index < 8u; export_index++) {
 			const auto slot = ShaderPixelExportTarget(pixel_info.target_shader_mask, export_index);

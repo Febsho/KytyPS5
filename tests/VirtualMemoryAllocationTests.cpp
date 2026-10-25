@@ -68,6 +68,10 @@ bool TestWindowsBackingViewModes();
 }
 #endif
 
+namespace Libs::Posix {
+void* KYTY_SYSV_ABI Mmap(void* addr, size_t len, int prot, int flags, int fd, int64_t offset);
+}
+
 namespace Libs::Fiber {
 struct FiberObject;
 struct FiberOptParam;
@@ -3643,6 +3647,23 @@ void TestProgramMemoryAllocationAndProtection() {
 	std::printf("[host]    %-48s ok\n", test);
 }
 
+void TestPosixAnonymousMmap() {
+	const char* test = "PosixAnonymousMmap";
+	constexpr uint64_t size = SceKernelPageSize;
+	auto* mapping = static_cast<uint8_t*>(Libs::Posix::Mmap(
+	    nullptr, size, 0x03, 0x1002, -1, 0));
+	Check(test, mapping != nullptr && mapping != reinterpret_cast<uint8_t*>(-1),
+	      "anonymous mmap failed");
+	const auto address = reinterpret_cast<uint64_t>(mapping);
+	Check(test, Libs::LibKernel::Memory::TestGuestAddressRangeIsOwned(address, size),
+	      "anonymous mmap was not tracked as guest runtime memory");
+	Check(test, mapping[0] == 0, "anonymous mmap was not zero-filled");
+	mapping[0] = 0x5a;
+	Check(test, mapping[0] == 0x5a, "anonymous mmap is not writable");
+	Check(test, Libs::LibKernel::Memory::FreeGuestMemory(address, size),
+	      "anonymous mmap could not be released");
+}
+
 void TestModuleRelocationUsesWritableHostMapping() {
 	const char* test = "ModuleRelocationUsesWritableHostMapping";
 	Check(test, Loader::TestModuleRelocationUsesWritableHostMapping(),
@@ -5053,6 +5074,7 @@ int main(int argc, char** argv) {
 	RunTest(TestMemoryPoolMultiRangeDecommit);
 	RunTest(TestMemoryPoolCommitDecommitQueryFlags);
 	RunTest(TestProgramMemoryAllocationAndProtection);
+	RunTest(TestPosixAnonymousMmap);
 	RunTest(TestModuleRelocationUsesWritableHostMapping);
 #if defined(__linux__) || KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
 	RunTest(TestTlsStubsPreserveFlags);

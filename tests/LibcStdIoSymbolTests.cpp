@@ -1,12 +1,22 @@
 #include "libs/libs.h"
+#include "libs/guestPrintf.h"
+#include "libs/vaContext.h"
 #include "loader/symbolDatabase.h"
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string_view>
 
 int main() {
   Loader::SymbolDatabase symbols;
   Libs::InitAll(&symbols);
+
+  if (symbols.FindByNid("6kPnj51T62Y", Loader::SymbolType::Func) == nullptr) {
+    std::fprintf(stderr, "VideoOut resolution status import does not resolve\n");
+    return 1;
+  }
 
   const auto *stdout_symbol =
       symbols.FindByNid("zqJhBxAKfsc", Loader::SymbolType::Object);
@@ -23,6 +33,53 @@ int main() {
     std::fprintf(
         stderr,
         "LibcInternal stdio data imports are not bound to host stream slots\n");
+    return 1;
+  }
+
+  const auto *getenv_symbol =
+      symbols.FindByNid("smbQukfxYJM", Loader::SymbolType::Func);
+  if (getenv_symbol == nullptr) {
+    std::fprintf(stderr, "LibcInternal getenv import does not resolve\n");
+    return 1;
+  }
+  const auto guest_getenv = reinterpret_cast<char *(KYTY_SYSV_ABI *)(const char *)>(
+      static_cast<uintptr_t>(getenv_symbol->vaddr));
+  const char *environment_names[] = {
+      "PATH", "KYTY_TEST_ENV_VAR_DOES_NOT_EXIST_7D3A"};
+  for (const char *name : environment_names) {
+    const char *expected = std::getenv(name);
+    char *actual = guest_getenv(name);
+    if ((expected == nullptr) != (actual == nullptr) ||
+        (expected != nullptr && std::strcmp(expected, actual) != 0)) {
+      std::fprintf(stderr, "LibcInternal getenv result disagrees with host environment\n");
+      return 1;
+    }
+  }
+
+  const auto snprintf = Libs::GetGuestSnprintfCtxFunc();
+  const auto run_snprintf = [snprintf](char *destination, size_t size) {
+    Libs::VaContext context{};
+    context.reg_save_area.gp[0] = reinterpret_cast<uintptr_t>(destination);
+    context.reg_save_area.gp[1] = size;
+    context.reg_save_area.gp[2] =
+        reinterpret_cast<uintptr_t>("%s:%d");
+    context.reg_save_area.gp[3] =
+        reinterpret_cast<uintptr_t>("hello");
+    context.reg_save_area.gp[4] = 42;
+    context.va_list.reg_save_area = &context.reg_save_area;
+    return snprintf(&context);
+  };
+
+  char truncated[5] = {'x', 'x', 'x', 'x', 'x'};
+  if (run_snprintf(truncated, sizeof(truncated)) != 8 ||
+      std::string_view(truncated) != "hell") {
+    std::fprintf(stderr, "guest snprintf truncation behavior is incorrect\n");
+    return 1;
+  }
+  char empty[1] = {'x'};
+  if (run_snprintf(empty, sizeof(empty)) != 8 || empty[0] != '\0' ||
+      run_snprintf(nullptr, 0) != 8) {
+    std::fprintf(stderr, "guest snprintf zero-sized behavior is incorrect\n");
     return 1;
   }
 

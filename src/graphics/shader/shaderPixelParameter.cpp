@@ -1,6 +1,7 @@
 #include "graphics/shader/shader.h"
 
 #include "common/assert.h"
+#include "graphics/guest_gpu/pm4.h"
 
 namespace Libs::Graphics {
 
@@ -8,6 +9,9 @@ namespace {
 
 constexpr uint32_t PsInputOffsetMask = 0x0000001fu;
 constexpr uint32_t PsInputFlatShade  = 0x00000400u;
+constexpr uint32_t PsInputPointSpriteTex =
+    Pm4::SPI_PS_INPUT_CNTL_0_PT_SPRITE_TEX_MASK <<
+    Pm4::SPI_PS_INPUT_CNTL_0_PT_SPRITE_TEX_SHIFT;
 
 } // namespace
 
@@ -64,8 +68,14 @@ uint32_t ShaderPixelParameterLocation(const ShaderPixelInputInfo& info,
 }
 
 bool ShaderPixelParameterIsFlat(const ShaderPixelInputInfo& info, uint32_t input) {
-	return input < info.input_num && (info.interpolator_settings[input] & PsInputFlatShade) != 0 &&
+	return info.flat_shade_enable && input < info.input_num &&
+	       (info.interpolator_settings[input] & PsInputFlatShade) != 0 &&
 	       !ShaderPixelParameterIsCustom(info, input);
+}
+
+bool ShaderPixelParameterUsesPointSprite(const ShaderPixelInputInfo& info, uint32_t input) {
+	return info.point_sprite_enable && input < info.input_num &&
+	       (info.interpolator_settings[input] & PsInputPointSpriteTex) != 0;
 }
 
 bool ShaderPixelParameterIsCustom(const ShaderPixelInputInfo& info, uint32_t input) {

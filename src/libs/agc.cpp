@@ -335,6 +335,46 @@ int KYTY_SYSV_ABI AgcInit(uint32_t* state, uint32_t ver) {
 	return OK;
 }
 
+void* KYTY_SYSV_ABI AgcGetRegisterDefaults() {
+	PRINT_NAME();
+
+	return get_public_register_defaults(0);
+}
+
+int KYTY_SYSV_ABI AgcLinkShaders(ShaderRegister* context, ShaderRegister* primitive,
+                                 const void* reserved, const Shader* vertex, const Shader* pixel,
+                                 uint32_t primitive_type) {
+	PRINT_NAME();
+
+	if (context == nullptr || primitive == nullptr || reserved != nullptr || vertex == nullptr ||
+	    vertex->type != static_cast<uint8_t>(Prospero::ShaderBinaryType::kGs) ||
+	    vertex->specials == nullptr ||
+	    (vertex->num_output_semantics != 0 && vertex->output_semantics == nullptr) ||
+	    (pixel != nullptr &&
+	     (pixel->type != static_cast<uint8_t>(Prospero::ShaderBinaryType::kPs) ||
+	      pixel->num_input_semantics > 32 ||
+	      (pixel->num_input_semantics != 0 && pixel->input_semantics == nullptr)))) {
+		return static_cast<int>(0x8a6c0005u);
+	}
+
+	std::array<ShaderRegister, 34> context_registers {};
+	std::array<ShaderRegister, 3>  primitive_registers {};
+	const int prim_result = AgcCreatePrimState(context_registers.data(), primitive_registers.data(),
+	                                           nullptr, vertex, primitive_type);
+	if (prim_result != OK) {
+		return prim_result;
+	}
+	const int interpolant_result =
+	    AgcCreateInterpolantMapping(context_registers.data() + 2, vertex, pixel);
+	if (interpolant_result != OK) {
+		return interpolant_result;
+	}
+
+	std::copy(context_registers.begin(), context_registers.end(), context);
+	std::copy(primitive_registers.begin(), primitive_registers.end(), primitive);
+	return OK;
+}
+
 void* KYTY_SYSV_ABI AgcGetRegisterDefaults2(uint32_t ver) {
 	PRINT_NAME();
 
@@ -404,40 +444,44 @@ static void dbg_dump_shader(const Shader* h) {
 	}
 	LOGF("\t specials                          = 0x%016" PRIx64 "\n",
 	     reinterpret_cast<uint64_t>(h->specials));
-	LOGF("\t\t ge_cntl:              offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
-	     h->specials->ge_cntl.offset, h->specials->ge_cntl.value);
-	LOGF("\t\t vgt_shader_stages_en: offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
-	     h->specials->vgt_shader_stages_en.offset, h->specials->vgt_shader_stages_en.value);
-	LOGF("\t\t vgt_gs_out_prim_type: offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
-	     h->specials->vgt_gs_out_prim_type.offset, h->specials->vgt_gs_out_prim_type.value);
-	LOGF("\t\t ge_user_vgpr_en:      offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
-	     h->specials->ge_user_vgpr_en.offset, h->specials->ge_user_vgpr_en.value);
-	LOGF("\t\t dispatch_modifier = %08" PRIx32 "\n", h->specials->dispatch_modifier);
-	LOGF("\t\t user_data_range: start = %08" PRIx32 ", end = %08" PRIx32 "\n",
-	     h->specials->user_data_range.start, h->specials->user_data_range.end);
-	LOGF("\t\t draw_modifier: enbl_start_vertex_offset   = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: enbl_start_index_offset    = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: enbl_start_instance_offset = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: enbl_draw_index            = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: enbl_user_vgprs            = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: render_target_slice_offset = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: fuse_draws                 = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: compiler_flags             = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: is_default                 = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: reserved                   = %08" PRIx32 "\n"
-	     "\t num_input_semantics               = 0x%08" PRIx32 "\n"
+	if (h->specials == nullptr) {
+		LOGF("\t\t special registers are unavailable (null pointer)\n");
+	} else {
+		LOGF("\t\t ge_cntl:              offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
+		     h->specials->ge_cntl.offset, h->specials->ge_cntl.value);
+		LOGF("\t\t vgt_shader_stages_en: offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
+		     h->specials->vgt_shader_stages_en.offset, h->specials->vgt_shader_stages_en.value);
+		LOGF("\t\t vgt_gs_out_prim_type: offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
+		     h->specials->vgt_gs_out_prim_type.offset, h->specials->vgt_gs_out_prim_type.value);
+		LOGF("\t\t ge_user_vgpr_en:      offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
+		     h->specials->ge_user_vgpr_en.offset, h->specials->ge_user_vgpr_en.value);
+		LOGF("\t\t dispatch_modifier = %08" PRIx32 "\n", h->specials->dispatch_modifier);
+		LOGF("\t\t user_data_range: start = %08" PRIx32 ", end = %08" PRIx32 "\n",
+		     h->specials->user_data_range.start, h->specials->user_data_range.end);
+		LOGF("\t\t draw_modifier: enbl_start_vertex_offset   = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: enbl_start_index_offset    = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: enbl_start_instance_offset = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: enbl_draw_index            = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: enbl_user_vgprs            = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: render_target_slice_offset = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: fuse_draws                 = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: compiler_flags             = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: is_default                 = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: reserved                   = %08" PRIx32 "\n",
+		     static_cast<uint32_t>(h->specials->draw_modifier.enbl_start_vertex_offset),
+		     static_cast<uint32_t>(h->specials->draw_modifier.enbl_start_index_offset),
+		     static_cast<uint32_t>(h->specials->draw_modifier.enbl_start_instance_offset),
+		     static_cast<uint32_t>(h->specials->draw_modifier.enbl_draw_index),
+		     static_cast<uint32_t>(h->specials->draw_modifier.enbl_user_vgprs),
+		     static_cast<uint32_t>(h->specials->draw_modifier.render_target_slice_offset),
+		     static_cast<uint32_t>(h->specials->draw_modifier.fuse_draws),
+		     static_cast<uint32_t>(h->specials->draw_modifier.compiler_flags),
+		     static_cast<uint32_t>(h->specials->draw_modifier.is_default),
+		     static_cast<uint32_t>(h->specials->draw_modifier.reserved));
+	}
+	LOGF("\t num_input_semantics               = 0x%08" PRIx32 "\n"
 	     "\t input_semantics                   = 0x%016" PRIx64 "\n",
-	     static_cast<uint32_t>(h->specials->draw_modifier.enbl_start_vertex_offset),
-	     static_cast<uint32_t>(h->specials->draw_modifier.enbl_start_index_offset),
-	     static_cast<uint32_t>(h->specials->draw_modifier.enbl_start_instance_offset),
-	     static_cast<uint32_t>(h->specials->draw_modifier.enbl_draw_index),
-	     static_cast<uint32_t>(h->specials->draw_modifier.enbl_user_vgprs),
-	     static_cast<uint32_t>(h->specials->draw_modifier.render_target_slice_offset),
-	     static_cast<uint32_t>(h->specials->draw_modifier.fuse_draws),
-	     static_cast<uint32_t>(h->specials->draw_modifier.compiler_flags),
-	     static_cast<uint32_t>(h->specials->draw_modifier.is_default),
-	     static_cast<uint32_t>(h->specials->draw_modifier.reserved), h->num_input_semantics,
-	     reinterpret_cast<uint64_t>(h->input_semantics));
+	     h->num_input_semantics, reinterpret_cast<uint64_t>(h->input_semantics));
 	for (int i = 0; i < static_cast<int>(h->num_input_semantics); i++) {
 		LOGF("\t\t input_semantics[%d]: semantic         = %08" PRIx32 "\n"
 		     "\t\t input_semantics[%d]: hardware_mapping = %08" PRIx32 "\n"
@@ -1057,26 +1101,25 @@ int KYTY_SYSV_ABI AgcCreatePrimState(ShaderRegister* cx_regs, ShaderRegister* uc
 	if (cx_regs != nullptr) {
 		EXIT_NOT_IMPLEMENTED(hs != nullptr && hs->specials->vgt_shader_stages_en.offset !=
 		                                          Pm4::VGT_SHADER_STAGES_EN);
-		EXIT_NOT_IMPLEMENTED(hs != nullptr && hs->specials->vgt_gs_out_prim_type.offset !=
-		                                          Pm4::VGT_GS_OUT_PRIM_TYPE);
 		EXIT_NOT_IMPLEMENTED(gs->specials->vgt_shader_stages_en.offset !=
 		                     Pm4::VGT_SHADER_STAGES_EN);
-		EXIT_NOT_IMPLEMENTED(gs->specials->vgt_gs_out_prim_type.offset !=
-		                     Pm4::VGT_GS_OUT_PRIM_TYPE);
 
 		cx_regs[0] = gs->specials->vgt_shader_stages_en;
+		if (hs != nullptr) {
+			cx_regs[0].value |= hs->specials->vgt_shader_stages_en.value;
+		}
+
 		if ((cx_regs[0].value & 0x20u) != 0) {
+			EXIT_NOT_IMPLEMENTED(gs->specials->vgt_gs_out_prim_type.offset !=
+			                     Pm4::VGT_GS_OUT_PRIM_TYPE);
 			cx_regs[1] = gs->specials->vgt_gs_out_prim_type;
+		} else if (hs != nullptr) {
+			EXIT_NOT_IMPLEMENTED(hs->specials->vgt_gs_out_prim_type.offset !=
+			                     Pm4::VGT_GS_OUT_PRIM_TYPE);
+			cx_regs[1] = hs->specials->vgt_gs_out_prim_type;
 		} else {
 			cx_regs[1].offset = Pm4::VGT_GS_OUT_PRIM_TYPE;
 			cx_regs[1].value  = GraphicsPrimitiveTypeToGsOut(prim_type);
-		}
-
-		if (hs != nullptr) {
-			cx_regs[0].value |= hs->specials->vgt_shader_stages_en.value;
-			if ((cx_regs[0].value & 0x20u) == 0) {
-				cx_regs[1] = hs->specials->vgt_gs_out_prim_type;
-			}
 		}
 	}
 
@@ -1914,6 +1957,12 @@ uint32_t* KYTY_SYSV_ABI AgcCbSetShRegistersDirect(CommandBuffer*                
 	return first_cmd;
 }
 
+uint32_t KYTY_SYSV_ABI AgcCbSetShRegistersDirectGetSize(uint32_t num_regs) {
+	PRINT_NAME();
+
+	return num_regs * 3u * sizeof(uint32_t);
+}
+
 uint32_t* KYTY_SYSV_ABI AgcCbSetUcRegistersDirect(CommandBuffer*                 buf,
                                                   const volatile ShaderRegister* regs,
                                                   uint32_t                       num_regs) {
@@ -2339,6 +2388,12 @@ uint32_t* KYTY_SYSV_ABI AgcDcbSetUcRegistersIndirect(CommandBuffer*             
 	reg_indirect_write_packet(cmd, vaddr, num_regs, RegIndirectPacket::Uc);
 
 	return cmd;
+}
+
+uint64_t KYTY_SYSV_ABI AgcDcbSetUcRegistersIndirectGetSize() {
+	PRINT_NAME();
+
+	return RegIndirectPacketSizeDw * sizeof(uint32_t);
 }
 
 uint32_t* KYTY_SYSV_ABI AgcDcbSetIndexSize(CommandBuffer* buf, uint8_t index_size,
@@ -3187,6 +3242,12 @@ uint32_t* KYTY_SYSV_ABI AgcAcbDispatchIndirect(CommandBuffer*       buf,
 	cmd[3] = (modifier & 0xa038u) | 0x41u;
 
 	return cmd;
+}
+
+uint32_t KYTY_SYSV_ABI AgcAcbDispatchIndirectGetSize() {
+	PRINT_NAME();
+
+	return 4u * sizeof(uint32_t);
 }
 
 uint32_t* KYTY_SYSV_ABI AgcAcbWriteData(CommandBuffer* buf, uint8_t dst, uint8_t cache_policy,
@@ -4088,14 +4149,39 @@ static void ReleaseDmem() {
 }
 
 struct TessellationDriverState {
-	uint64_t tf_ring_base      = 0;
-	uint32_t tf_ring_size      = 0;
+	uint64_t tf_ring_base      = 0xff0000000ull;
+	uint32_t tf_ring_size      = 0x20000;
 	uint64_t hs_offchip_value0 = 0;
 	uint64_t hs_offchip_value1 = 0;
 	uint64_t hs_offchip_value2 = 0;
 };
 
 static TessellationDriverState g_tessellation_driver_state {};
+static std::mutex              g_tessellation_driver_state_mutex;
+
+static constexpr uint32_t RenderingWaitPacketHeader = 0xc0021018u;
+static constexpr uint32_t RenderingWaitPacketWords  = 4;
+
+uint32_t KYTY_SYSV_ABI AgcDriverGetWaitRenderingPacketSizeInDwords() {
+	PRINT_NAME();
+	return RenderingWaitPacketWords;
+}
+
+uint32_t KYTY_SYSV_ABI AgcDriverWaitUntilSafeForRendering(uint32_t** command,
+                                                          uint32_t capacity, uint32_t mode,
+                                                          uint32_t handle, int index) {
+	PRINT_NAME();
+
+	EXIT_NOT_IMPLEMENTED(command == nullptr || *command == nullptr ||
+	                     capacity < RenderingWaitPacketWords || mode != 0 || index < 0);
+
+	const uint32_t packet[RenderingWaitPacketWords] = {
+	    RenderingWaitPacketHeader, handle, static_cast<uint32_t>(index), mode,
+	};
+	std::copy(std::begin(packet), std::end(packet), *command);
+	*command += RenderingWaitPacketWords;
+	return 0;
+}
 
 static void submit_dcb(uint32_t* dcb, uint32_t size_in_dwords) {
 	GraphicsDbgDumpDcb("d", size_in_dwords, dcb);
@@ -4320,13 +4406,28 @@ uint32_t KYTY_SYSV_ABI AgcDriverGetEqContextId(const LibKernel::EventQueue::Kern
 int KYTY_SYSV_ABI AgcDriverSetTFRing(const volatile void* base, uint32_t size) {
 	PRINT_NAME();
 
-	g_tessellation_driver_state.tf_ring_base = reinterpret_cast<uint64_t>(base);
-	g_tessellation_driver_state.tf_ring_size = size;
+	const auto address = reinterpret_cast<uint64_t>(base);
+	{
+		std::scoped_lock lock {g_tessellation_driver_state_mutex};
+		g_tessellation_driver_state.tf_ring_base = address;
+		g_tessellation_driver_state.tf_ring_size = size;
+	}
 
 	LOGF("\t base = 0x%016" PRIx64 "\n"
 	     "\t size = 0x%08" PRIx32 "\n",
-	     g_tessellation_driver_state.tf_ring_base, g_tessellation_driver_state.tf_ring_size);
+	     address, size);
 
+	return OK;
+}
+
+int KYTY_SYSV_ABI AgcDriverGetTFRing(uintptr_t* base, uint32_t* size) {
+	PRINT_NAME();
+
+	EXIT_NOT_IMPLEMENTED(base == nullptr || size == nullptr);
+
+	std::scoped_lock lock {g_tessellation_driver_state_mutex};
+	*base = static_cast<uintptr_t>(g_tessellation_driver_state.tf_ring_base);
+	*size = g_tessellation_driver_state.tf_ring_size;
 	return OK;
 }
 

@@ -712,6 +712,21 @@ KYTY_HW_CTX_PARSER(HwCtxSetLineControl) {
 	return 1;
 }
 
+KYTY_HW_CTX_PARSER(HwCtxSetPaScLineControl) {
+	EXIT_NOT_IMPLEMENTED(cmd_id != 0xC0016900);
+	EXIT_NOT_IMPLEMENTED(cmd_offset != Pm4::PA_SC_LINE_CNTL);
+	// Zero is the neutral/default state. Other line-drawing controls are not yet modeled.
+	EXIT_NOT_IMPLEMENTED(buffer[0] != 0);
+	return 1;
+}
+
+KYTY_HW_CTX_PARSER(HwCtxSetSpiInterpControl) {
+	EXIT_NOT_IMPLEMENTED(cmd_id != 0xC0016900);
+	EXIT_NOT_IMPLEMENTED(cmd_offset != Pm4::SPI_INTERP_CONTROL_0);
+	cp.GetCtx().SetSpiInterpControl0(buffer[0]);
+	return 1;
+}
+
 KYTY_HW_CTX_PARSER(HwCtxSetModeControl) {
 	EXIT_NOT_IMPLEMENTED(cmd_id != 0xC0016900);
 	EXIT_NOT_IMPLEMENTED(cmd_offset != Pm4::PA_SU_SC_MODE_CNTL);
@@ -2202,14 +2217,14 @@ KYTY_CP_OP_PARSER(CpOpSetUconfigReg) {
 KYTY_CP_OP_PARSER(CpOpWaitFlipDone) {
 	KYTY_PROFILER_FUNCTION();
 
-	EXIT_NOT_IMPLEMENTED(cmd_id != 0xc0051018);
+	EXIT_NOT_IMPLEMENTED(cmd_id != 0xc0051018 && cmd_id != 0xc0021018);
 
 	auto video_out_handle     = buffer[0];
 	auto display_buffer_index = buffer[1];
 
 	cp.WaitFlipDone(video_out_handle, display_buffer_index);
 
-	return 6;
+	return cmd_id == 0xc0051018 ? 6 : 3;
 }
 
 template <typename T>
@@ -3092,6 +3107,13 @@ void GraphicsInitJmpTablesCxIndirect() {
 	g_hw_ctx_indirect_func[Pm4::PA_SU_LINE_CNTL] = [](KYTY_HW_CTX_INDIRECT_ARGS) {
 		auto line_width = KYTY_PM4_GET(value, PA_SU_LINE_CNTL, WIDTH);
 		cp.GetCtx().SetLineWidth(line_width == 8 ? 1.0f : static_cast<float>(line_width) / 8.0f);
+	};
+	g_hw_ctx_indirect_func[Pm4::PA_SC_LINE_CNTL] = [](KYTY_HW_CTX_INDIRECT_ARGS) {
+		// Zero is the neutral/default state. Other line-drawing controls are not yet modeled.
+		EXIT_NOT_IMPLEMENTED(value != 0);
+	};
+	g_hw_ctx_indirect_func[Pm4::SPI_INTERP_CONTROL_0] = [](KYTY_HW_CTX_INDIRECT_ARGS) {
+		cp.GetCtx().SetSpiInterpControl0(value);
 	};
 	g_hw_ctx_indirect_func[Pm4::PA_SC_FOV_WINDOW_LR] = [](KYTY_HW_CTX_INDIRECT_ARGS) {
 		HwCtxIgnoreFovWindow(value);
