@@ -505,6 +505,7 @@ constexpr uint32_t PA_SU_POINT_MINMAX           = 0x281;
 constexpr uint32_t PA_SU_LINE_CNTL             = 0x282;
 constexpr uint32_t PA_SU_LINE_CNTL_WIDTH_SHIFT = 0;
 constexpr uint32_t PA_SU_LINE_CNTL_WIDTH_MASK  = 0xFFFF;
+constexpr uint32_t PA_SC_LINE_CNTL             = 0x2F7;
 
 constexpr uint32_t VGT_HOS_MAX_TESS_LEVEL = 0x286;
 constexpr uint32_t VGT_HOS_MIN_TESS_LEVEL = 0x287;
