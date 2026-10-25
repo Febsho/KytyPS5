@@ -444,40 +444,44 @@ static void dbg_dump_shader(const Shader* h) {
 	}
 	LOGF("\t specials                          = 0x%016" PRIx64 "\n",
 	     reinterpret_cast<uint64_t>(h->specials));
-	LOGF("\t\t ge_cntl:              offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
-	     h->specials->ge_cntl.offset, h->specials->ge_cntl.value);
-	LOGF("\t\t vgt_shader_stages_en: offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
-	     h->specials->vgt_shader_stages_en.offset, h->specials->vgt_shader_stages_en.value);
-	LOGF("\t\t vgt_gs_out_prim_type: offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
-	     h->specials->vgt_gs_out_prim_type.offset, h->specials->vgt_gs_out_prim_type.value);
-	LOGF("\t\t ge_user_vgpr_en:      offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
-	     h->specials->ge_user_vgpr_en.offset, h->specials->ge_user_vgpr_en.value);
-	LOGF("\t\t dispatch_modifier = %08" PRIx32 "\n", h->specials->dispatch_modifier);
-	LOGF("\t\t user_data_range: start = %08" PRIx32 ", end = %08" PRIx32 "\n",
-	     h->specials->user_data_range.start, h->specials->user_data_range.end);
-	LOGF("\t\t draw_modifier: enbl_start_vertex_offset   = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: enbl_start_index_offset    = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: enbl_start_instance_offset = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: enbl_draw_index            = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: enbl_user_vgprs            = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: render_target_slice_offset = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: fuse_draws                 = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: compiler_flags             = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: is_default                 = %08" PRIx32 "\n"
-	     "\t\t draw_modifier: reserved                   = %08" PRIx32 "\n"
-	     "\t num_input_semantics               = 0x%08" PRIx32 "\n"
+	if (h->specials == nullptr) {
+		LOGF("\t\t special registers are unavailable (null pointer)\n");
+	} else {
+		LOGF("\t\t ge_cntl:              offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
+		     h->specials->ge_cntl.offset, h->specials->ge_cntl.value);
+		LOGF("\t\t vgt_shader_stages_en: offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
+		     h->specials->vgt_shader_stages_en.offset, h->specials->vgt_shader_stages_en.value);
+		LOGF("\t\t vgt_gs_out_prim_type: offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
+		     h->specials->vgt_gs_out_prim_type.offset, h->specials->vgt_gs_out_prim_type.value);
+		LOGF("\t\t ge_user_vgpr_en:      offset = %08" PRIx32 ", value = %08" PRIx32 "\n",
+		     h->specials->ge_user_vgpr_en.offset, h->specials->ge_user_vgpr_en.value);
+		LOGF("\t\t dispatch_modifier = %08" PRIx32 "\n", h->specials->dispatch_modifier);
+		LOGF("\t\t user_data_range: start = %08" PRIx32 ", end = %08" PRIx32 "\n",
+		     h->specials->user_data_range.start, h->specials->user_data_range.end);
+		LOGF("\t\t draw_modifier: enbl_start_vertex_offset   = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: enbl_start_index_offset    = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: enbl_start_instance_offset = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: enbl_draw_index            = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: enbl_user_vgprs            = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: render_target_slice_offset = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: fuse_draws                 = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: compiler_flags             = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: is_default                 = %08" PRIx32 "\n"
+		     "\t\t draw_modifier: reserved                   = %08" PRIx32 "\n",
+		     static_cast<uint32_t>(h->specials->draw_modifier.enbl_start_vertex_offset),
+		     static_cast<uint32_t>(h->specials->draw_modifier.enbl_start_index_offset),
+		     static_cast<uint32_t>(h->specials->draw_modifier.enbl_start_instance_offset),
+		     static_cast<uint32_t>(h->specials->draw_modifier.enbl_draw_index),
+		     static_cast<uint32_t>(h->specials->draw_modifier.enbl_user_vgprs),
+		     static_cast<uint32_t>(h->specials->draw_modifier.render_target_slice_offset),
+		     static_cast<uint32_t>(h->specials->draw_modifier.fuse_draws),
+		     static_cast<uint32_t>(h->specials->draw_modifier.compiler_flags),
+		     static_cast<uint32_t>(h->specials->draw_modifier.is_default),
+		     static_cast<uint32_t>(h->specials->draw_modifier.reserved));
+	}
+	LOGF("\t num_input_semantics               = 0x%08" PRIx32 "\n"
 	     "\t input_semantics                   = 0x%016" PRIx64 "\n",
-	     static_cast<uint32_t>(h->specials->draw_modifier.enbl_start_vertex_offset),
-	     static_cast<uint32_t>(h->specials->draw_modifier.enbl_start_index_offset),
-	     static_cast<uint32_t>(h->specials->draw_modifier.enbl_start_instance_offset),
-	     static_cast<uint32_t>(h->specials->draw_modifier.enbl_draw_index),
-	     static_cast<uint32_t>(h->specials->draw_modifier.enbl_user_vgprs),
-	     static_cast<uint32_t>(h->specials->draw_modifier.render_target_slice_offset),
-	     static_cast<uint32_t>(h->specials->draw_modifier.fuse_draws),
-	     static_cast<uint32_t>(h->specials->draw_modifier.compiler_flags),
-	     static_cast<uint32_t>(h->specials->draw_modifier.is_default),
-	     static_cast<uint32_t>(h->specials->draw_modifier.reserved), h->num_input_semantics,
-	     reinterpret_cast<uint64_t>(h->input_semantics));
+	     h->num_input_semantics, reinterpret_cast<uint64_t>(h->input_semantics));
 	for (int i = 0; i < static_cast<int>(h->num_input_semantics); i++) {
 		LOGF("\t\t input_semantics[%d]: semantic         = %08" PRIx32 "\n"
 		     "\t\t input_semantics[%d]: hardware_mapping = %08" PRIx32 "\n"
