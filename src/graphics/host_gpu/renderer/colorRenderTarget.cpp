@@ -102,15 +102,14 @@ void RenderExecutor::ResolveRenderColorTarget(CommandBuffer& buffer, RenderColor
 	if (is_1d && rt.attrib2.height != 0) {
 		EXIT("1D render target has nonzero height: %u\n", rt.attrib2.height);
 	}
-	if (!volume && rt.attrib3.depth != 0) {
-		EXIT("non-3D render target has nonzero depth: %u\n", rt.attrib3.depth);
-	}
 	if (is_1d && samples != 1) {
 		EXIT("multisampled 1D render targets are unsupported\n");
 	}
 	if (volume && samples != 1) {
 		EXIT("multisampled 3D render targets are unsupported\n");
 	}
+	// MIP0_DEPTH also carries the layer count for 2D array render targets.
+	// The selected attachment layers for non-volume targets come from CB_COLOR_VIEW.
 	const uint32_t depth = volume ? rt.attrib3.depth + 1u : 1u;
 	// For volumes, CB_COLOR_VIEW bounds exported slices; ATTRIB3 defines storage depth.
 	// The host attachment contains only the selected slices that exist in this mip.
