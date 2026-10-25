@@ -28,6 +28,7 @@
 #include <bit>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1892,6 +1893,31 @@ int KYTY_SYSV_ABI nanosleep(const LibKernel::KernelTimespec* rqtp,
 	return POSIX_CALL(LibKernel::KernelNanosleep(rqtp, rmtp));
 }
 
+void* KYTY_SYSV_ABI Mmap(void* addr, size_t len, int prot, int flags, int fd, int64_t offset) {
+	PRINT_NAME();
+
+	constexpr int MAP_PRIVATE   = 0x0002;
+	constexpr int MAP_ANONYMOUS = 0x1000;
+	constexpr int PROT_MASK     = 0x0007;
+	constexpr int MAP_FAILED    = -1;
+
+	if (len == 0 || flags != (MAP_PRIVATE | MAP_ANONYMOUS) || fd != -1 || offset != 0 ||
+	    (prot & ~PROT_MASK) != 0) {
+		*GetErrorAddr() = POSIX_EINVAL;
+		return reinterpret_cast<void*>(static_cast<intptr_t>(MAP_FAILED));
+	}
+
+	const auto mode = static_cast<Common::VirtualMemory::Mode>(prot);
+	const auto mapped_addr = LibKernel::Memory::AllocateRuntimeMemory(
+	    reinterpret_cast<uint64_t>(addr), len, mode, "posix_mmap");
+	if (mapped_addr == 0) {
+		*GetErrorAddr() = POSIX_ENOMEM;
+		return reinterpret_cast<void*>(static_cast<intptr_t>(MAP_FAILED));
+	}
+
+	return reinterpret_cast<void*>(mapped_addr);
+}
+
 int KYTY_SYSV_ABI stat(const char* path, LibKernel::FileSystem::FileStat* sb) {
 	PRINT_NAME();
 
@@ -2149,6 +2175,7 @@ int KYTY_SYSV_ABI UmtxOp(volatile void* address, int operation, uint64_t value,
 }
 
 LIB_DEFINE(InitLibKernel_1_Posix) {
+	LIB_FUNC("BPE9s9vQQXo", Mmap);
 	LIB_FUNC("k+AXqu2-eBc", getpagesize);
 	LIB_FUNC("lLMT9vJAck0", clock_gettime);
 	LIB_FUNC("smIj7eqzZE8", clock_getres);
@@ -2248,6 +2275,16 @@ LIB_DEFINE(InitLibKernel_1_Posix) {
 }
 
 } // namespace Posix
+
+namespace LibKernelLegacy {
+
+LIB_VERSION("libkernel", 1, "libkernel", 0, 1);
+
+LIB_DEFINE(InitLibKernel_0_1) {
+	LIB_FUNC("BPE9s9vQQXo", Posix::Mmap);
+}
+
+} // namespace LibKernelLegacy
 
 namespace Coredump {
 
@@ -3362,6 +3399,7 @@ LIB_DEFINE(InitLibKernel_1) {
 	InitLibKernel_1_Pthread(s);
 	LibKernelApr::InitLibKernel_1_Apr(s);
 	Posix::InitLibKernel_1_Posix(s);
+	LibKernelLegacy::InitLibKernel_0_1(s);
 	LibKernelWriteThrottling::InitLibKernelWriteThrottling(s);
 
 	LIB_OBJECT("f7uOxY9mM1U", &LibKernel::g_stack_chk_guard);
