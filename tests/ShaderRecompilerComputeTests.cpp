@@ -49800,6 +49800,31 @@ void CheckPm4DrawIndirectMultiPacket(RenderContext &renderer) {
 void CheckPm4ContextStateOperations(RenderContext &renderer) {
   GraphicsInitJmpTables();
   CommandProcessor processor(renderer, 0);
+  const std::array<uint32_t, 3> neutral_line_direct{
+      KYTY_PM4(3, Pm4::IT_SET_CONTEXT_REG, Pm4::R_ZERO),
+      Pm4::PA_SC_LINE_CNTL,
+      0u,
+  };
+  Pm4Execution neutral_line_direct_execution;
+  Require("Pm4NeutralLineControl", "direct neutral value",
+          processor.Process(neutral_line_direct_execution, neutral_line_direct) ==
+              Pm4ProcessResult::Complete,
+          "neutral PA_SC_LINE_CNTL context write was rejected");
+  const std::array<uint32_t, 2> neutral_line_registers{Pm4::PA_SC_LINE_CNTL, 0u};
+  const auto neutral_line_address =
+      reinterpret_cast<uint64_t>(neutral_line_registers.data());
+  const std::array<uint32_t, 5> neutral_line_indirect{
+      KYTY_PM4(5, Pm4::IT_SET_CONTEXT_REG_INDIRECT, Pm4::R_ZERO),
+      static_cast<uint32_t>(neutral_line_address),
+      static_cast<uint32_t>(neutral_line_address >> 32u),
+      0x80000000u,
+      1u,
+  };
+  Pm4Execution neutral_line_indirect_execution;
+  Require("Pm4NeutralLineControl", "indirect neutral value",
+          processor.Process(neutral_line_indirect_execution,
+                            neutral_line_indirect) == Pm4ProcessResult::Complete,
+          "neutral PA_SC_LINE_CNTL indirect write was rejected");
   constexpr auto primitive_type = static_cast<Prospero::PrimitiveType>(0x35u);
 
   HW::RenderControl original_control{};
