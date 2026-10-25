@@ -37,6 +37,7 @@ struct CommandBuffer;
 struct Label;
 
 int KYTY_SYSV_ABI   AgcInit(uint32_t* state, uint32_t ver);
+void* KYTY_SYSV_ABI AgcGetRegisterDefaults();
 void* KYTY_SYSV_ABI AgcGetRegisterDefaults2(uint32_t ver);
 void* KYTY_SYSV_ABI AgcGetRegisterDefaults2Internal(uint32_t ver);
 int KYTY_SYSV_ABI   AgcCreateShader(Shader** dst, void* header, const volatile void* code);

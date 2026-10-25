@@ -396,6 +396,7 @@ endfunction()
 
 add_kyty_full_emulator_test(shader_cfg_tests "${KYTY_TESTS_DIR}/shaderCfgTests.cpp")
 add_kyty_full_emulator_test(libc_stdio_symbol_tests "${KYTY_TESTS_DIR}/LibcStdIoSymbolTests.cpp")
+add_kyty_full_emulator_test(agc_legacy_symbol_tests "${KYTY_TESTS_DIR}/AgcLegacySymbolTests.cpp")
 
 add_executable(scalar_provenance_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/ScalarProvenanceTests.cpp"

@@ -335,6 +335,12 @@ int KYTY_SYSV_ABI AgcInit(uint32_t* state, uint32_t ver) {
 	return OK;
 }
 
+void* KYTY_SYSV_ABI AgcGetRegisterDefaults() {
+	PRINT_NAME();
+
+	return get_public_register_defaults(0);
+}
+
 void* KYTY_SYSV_ABI AgcGetRegisterDefaults2(uint32_t ver) {
 	PRINT_NAME();
 

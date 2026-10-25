@@ -5,6 +5,21 @@
 
 namespace Libs {
 
+namespace LibAgc {
+
+LIB_VERSION("Agc", 1, "Agc", 0, 1);
+
+namespace Gen5 = Graphics::Gen5;
+
+LIB_DEFINE(InitAgc_1) {
+	PRINT_NAME_ENABLE(true);
+
+	LIB_FUNC("kW3GLb7QfPg", Gen5::AgcInit);
+	LIB_FUNC("Wi82ArQtAwg", Gen5::AgcGetRegisterDefaults);
+}
+
+} // namespace LibAgc
+
 namespace LibGen5 {
 
 LIB_VERSION("Graphics5", 1, "Graphics5", 1, 1);
@@ -197,6 +212,7 @@ LIB_DEFINE(InitAgcDriver_1) {
 } // namespace LibGen5Driver
 
 LIB_DEFINE(InitAgcDriver_1) {
+	LibAgc::InitAgc_1(s);
 	LibGen5::InitAgcDriver_1(s);
 	LibGen5Driver::InitAgcDriver_1(s);
 }
