@@ -3,6 +3,8 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 int main() {
   Loader::SymbolDatabase symbols;
@@ -24,6 +26,27 @@ int main() {
         stderr,
         "LibcInternal stdio data imports are not bound to host stream slots\n");
     return 1;
+  }
+
+  const auto* getenv_symbol =
+      symbols.FindByNid("smbQukfxYJM", Loader::SymbolType::Func);
+  if (getenv_symbol == nullptr) {
+    std::fprintf(stderr, "LibcInternal getenv import does not resolve\n");
+    return 1;
+  }
+  const auto guest_getenv = reinterpret_cast<char*(KYTY_SYSV_ABI*)(const char*)>(
+      static_cast<uintptr_t>(getenv_symbol->vaddr));
+  const char* environment_names[] = {
+      "PATH", "KYTY_TEST_ENV_VAR_DOES_NOT_EXIST_7D3A"};
+  for (const char* name : environment_names) {
+    const char* expected = std::getenv(name);
+    char*       actual   = guest_getenv(name);
+    if ((expected == nullptr) != (actual == nullptr) ||
+        (expected != nullptr && std::strcmp(expected, actual) != 0)) {
+      std::fprintf(stderr,
+                   "LibcInternal getenv result disagrees with host environment\n");
+      return 1;
+    }
   }
 
   return 0;
