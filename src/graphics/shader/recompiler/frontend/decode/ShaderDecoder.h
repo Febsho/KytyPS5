@@ -221,6 +221,7 @@ enum class Opcode {
 	V_COS_F16,
 	V_SIN_F32,
 	V_COS_F32,
+	V_SWAP_B32,
 	V_NOT_B32,
 	V_BFREV_B32,
 	V_FFBH_U32,

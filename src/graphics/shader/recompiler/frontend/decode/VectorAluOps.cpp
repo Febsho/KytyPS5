@@ -146,6 +146,7 @@ constexpr OpcodeMap VOP1_OPCODE_LIST[] = {
     {0x5fu, Opcode::V_FRACT_F16},
     {0x60u, Opcode::V_SIN_F16},
     {0x61u, Opcode::V_COS_F16},
+    {0x65u, Opcode::V_SWAP_B32},
 };
 
 constexpr auto VOP1_OPS = Detail::MakeOpcodeTable<0x100>(VOP1_OPCODE_LIST);
@@ -1736,6 +1737,12 @@ void DecodeVop1(uint32_t pc, std::span<const uint32_t> code, uint32_t word_index
 		inst.src_count = 0;
 		return;
 	}
+	if (inst.opcode == Opcode::V_SWAP_B32 &&
+	    (src0 == 233u || src0 == 234u || src0 == 249u || src0 == 250u)) {
+		SetUnsupported(inst, Family::VOP1, opcode,
+		               "V_SWAP_B32 does not support DPP or SDWA modifiers");
+		return;
+	}
 	switch (src0) {
 		case 233u:
 		case 234u: DecodeVop1Dpp(pc, code, word_index, opcode, vdst, inst); return;
@@ -1750,6 +1757,10 @@ void DecodeVop1(uint32_t pc, std::span<const uint32_t> code, uint32_t word_index
 		DecodeVectorGpr(vdst, inst.dst);
 	}
 	DecodeScalarSource(src0, pc, inst.src0);
+	if (inst.opcode == Opcode::V_SWAP_B32 && inst.src0.kind != OperandKind::Vgpr) {
+		SetUnsupported(inst, Family::VOP1, opcode, "V_SWAP_B32 requires a VGPR source");
+		return;
+	}
 	inst.src_count = 1;
 	ReadLiteralOperands(code, word_index, inst);
 }

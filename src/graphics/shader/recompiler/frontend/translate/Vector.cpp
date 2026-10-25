@@ -16,6 +16,13 @@ void Translator::EmitVector(const Decoder::Instruction& inst) {
 		case O::V_SUBREV_CO_CI_U32: SUBB_U32(inst, true, true); return;
 
 		case O::V_MOV_B32: MOV_B32(inst, true); return;
+		case O::V_SWAP_B32: {
+			const auto source      = ReadRawU32(inst.src0);
+			const auto destination = ir.GetVectorReg(static_cast<IR::VectorReg>(inst.dst.reg));
+			WriteRawU32(inst.src0, destination);
+			WriteRawU32(inst.dst, source);
+			return;
+		}
 		case O::V_MOVRELS_B32: V_MOVRELS_B32(inst); return;
 		case O::V_MOVRELD_B32: V_MOVRELD_B32(inst); return;
 		case O::V_READFIRSTLANE_B32: V_READFIRSTLANE_B32(inst); return;
