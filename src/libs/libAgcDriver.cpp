@@ -21,6 +21,22 @@ LIB_DEFINE(InitAgc_1) {
 
 } // namespace LibAgc
 
+namespace LibAgcDriver {
+
+LIB_VERSION("AgcDriver", 1, "AgcDriver", 0, 1);
+
+namespace Gen5Driver = Graphics::Gen5Driver;
+
+LIB_DEFINE(InitAgcDriverLegacy_1) {
+	PRINT_NAME_ENABLE(true);
+
+	LIB_FUNC("0MtUJ3BpGhE", Gen5Driver::AgcDriverGetWaitRenderingPacketSizeInDwords);
+	LIB_FUNC("u8BkdHb1+Po", Gen5Driver::AgcDriverWaitUntilSafeForRendering);
+	LIB_FUNC("e-YMQ+2tj9M", Gen5Driver::AgcDriverGetTFRing);
+}
+
+} // namespace LibAgcDriver
+
 namespace LibGen5 {
 
 LIB_VERSION("Graphics5", 1, "Graphics5", 1, 1);
@@ -214,6 +230,7 @@ LIB_DEFINE(InitAgcDriver_1) {
 
 LIB_DEFINE(InitAgcDriver_1) {
 	LibAgc::InitAgc_1(s);
+	LibAgcDriver::InitAgcDriverLegacy_1(s);
 	LibGen5::InitAgcDriver_1(s);
 	LibGen5Driver::InitAgcDriver_1(s);
 }

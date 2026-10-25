@@ -341,7 +341,12 @@ int KYTY_SYSV_ABI AgcDriverAddEqEvent(LibKernel::EventQueue::KernelEqueue eq, in
 int KYTY_SYSV_ABI AgcDriverDeleteEqEvent(LibKernel::EventQueue::KernelEqueue eq, int id);
 int KYTY_SYSV_ABI AgcDriverGetEqEventType(const LibKernel::EventQueue::KernelEvent* ev);
 uint32_t KYTY_SYSV_ABI AgcDriverGetEqContextId(const LibKernel::EventQueue::KernelEvent* ev);
+uint32_t KYTY_SYSV_ABI AgcDriverGetWaitRenderingPacketSizeInDwords();
+uint32_t KYTY_SYSV_ABI AgcDriverWaitUntilSafeForRendering(uint32_t** command,
+                                                         uint32_t capacity, uint32_t mode,
+                                                         uint32_t handle, int index);
 int KYTY_SYSV_ABI      AgcDriverSetTFRing(const volatile void* base, uint32_t size);
+int KYTY_SYSV_ABI      AgcDriverGetTFRing(uintptr_t* base, uint32_t* size);
 int KYTY_SYSV_ABI  AgcDriverSetHsOffchipParam(uint64_t value0, uint64_t value1, uint64_t value2);
 bool KYTY_SYSV_ABI AgcDriverIsCaptureInProgress();
 int KYTY_SYSV_ABI  AgcDriverRegisterDefaultOwner();

@@ -79,6 +79,51 @@ int main() {
 		return 1;
 	}
 
+	const auto* wait_size_symbol =
+	    symbols.FindByNid("0MtUJ3BpGhE", Loader::SymbolType::Func);
+	const auto* wait_symbol = symbols.FindByNid("u8BkdHb1+Po", Loader::SymbolType::Func);
+	const auto* get_tf_ring_symbol =
+	    symbols.FindByNid("e-YMQ+2tj9M", Loader::SymbolType::Func);
+	const auto* set_tf_ring_symbol =
+	    symbols.FindByNid("XlNp7jzGiPo", Loader::SymbolType::Func);
+	if (wait_size_symbol == nullptr || wait_symbol == nullptr || get_tf_ring_symbol == nullptr ||
+	    set_tf_ring_symbol == nullptr) {
+		std::fprintf(stderr, "legacy AgcDriver imports are not registered\n");
+		Config::Shutdown();
+		return 1;
+	}
+	auto get_wait_size = reinterpret_cast<uint32_t(KYTY_SYSV_ABI*)()>(wait_size_symbol->vaddr);
+	auto wait_until_safe = reinterpret_cast<uint32_t(KYTY_SYSV_ABI*)(uint32_t**, uint32_t,
+	                                                                  uint32_t, uint32_t, int)>(
+	    wait_symbol->vaddr);
+	std::array<uint32_t, 4> rendering_wait {};
+	auto* rendering_wait_cursor = rendering_wait.data();
+	if (get_wait_size() != rendering_wait.size() ||
+	    wait_until_safe(&rendering_wait_cursor, rendering_wait.size(), 0, 7, 2) != 0 ||
+	    rendering_wait_cursor != rendering_wait.data() + rendering_wait.size() ||
+	    rendering_wait[0] != 0xc0021018u || rendering_wait[1] != 7 || rendering_wait[2] != 2 ||
+	    rendering_wait[3] != 0) {
+		std::fprintf(stderr, "legacy AgcDriver rendering-wait packet is incorrect\n");
+		Config::Shutdown();
+		return 1;
+	}
+	auto get_tf_ring = reinterpret_cast<int(KYTY_SYSV_ABI*)(uintptr_t*, uint32_t*)>(
+	    get_tf_ring_symbol->vaddr);
+	auto set_tf_ring = reinterpret_cast<int(KYTY_SYSV_ABI*)(const volatile void*, uint32_t)>(
+	    set_tf_ring_symbol->vaddr);
+	uintptr_t tf_ring_base = 0;
+	uint32_t tf_ring_size = 0;
+	std::array<uint32_t, 4> tf_ring {};
+	if (get_tf_ring(&tf_ring_base, &tf_ring_size) != 0 || tf_ring_base != 0xff0000000ull ||
+	    tf_ring_size != 0x20000 || set_tf_ring(tf_ring.data(), sizeof(tf_ring)) != 0 ||
+	    get_tf_ring(&tf_ring_base, &tf_ring_size) != 0 ||
+	    tf_ring_base != reinterpret_cast<uintptr_t>(tf_ring.data()) ||
+	    tf_ring_size != sizeof(tf_ring)) {
+		std::fprintf(stderr, "legacy AgcDriver tessellation factor ring query is incorrect\n");
+		Config::Shutdown();
+		return 1;
+	}
+
 	Config::Shutdown();
 	return 0;
 }

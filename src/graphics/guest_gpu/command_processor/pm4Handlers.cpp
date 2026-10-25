@@ -2202,14 +2202,14 @@ KYTY_CP_OP_PARSER(CpOpSetUconfigReg) {
 KYTY_CP_OP_PARSER(CpOpWaitFlipDone) {
 	KYTY_PROFILER_FUNCTION();
 
-	EXIT_NOT_IMPLEMENTED(cmd_id != 0xc0051018);
+	EXIT_NOT_IMPLEMENTED(cmd_id != 0xc0051018 && cmd_id != 0xc0021018);
 
 	auto video_out_handle     = buffer[0];
 	auto display_buffer_index = buffer[1];
 
 	cp.WaitFlipDone(video_out_handle, display_buffer_index);
 
-	return 6;
+	return cmd_id == 0xc0051018 ? 6 : 3;
 }
 
 template <typename T>
