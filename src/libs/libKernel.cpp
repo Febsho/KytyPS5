@@ -36,6 +36,10 @@
 #include <thread>
 #include <vector>
 
+#if KYTY_PLATFORM != KYTY_PLATFORM_WINDOWS
+#include <unistd.h>
+#endif
+
 #if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -1849,6 +1853,35 @@ int KYTY_SYSV_ABI getpagesize() {
 	return 0x4000;
 }
 
+long KYTY_SYSV_ABI sysconf(int name) {
+	PRINT_NAME();
+
+	// PS5 uses the FreeBSD _SC_NPROCESSORS_CONF/_SC_NPROCESSORS_ONLN values.
+	constexpr int SC_NPROCESSORS_CONF = 57;
+	constexpr int SC_NPROCESSORS_ONLN = 58;
+	if (name != SC_NPROCESSORS_CONF && name != SC_NPROCESSORS_ONLN) {
+		*GetErrorAddr() = POSIX_EINVAL;
+		return -1;
+	}
+
+#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
+	const auto count = name == SC_NPROCESSORS_CONF ? GetMaximumProcessorCount(ALL_PROCESSOR_GROUPS)
+	                                                : GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+	if (count == 0) {
+		*GetErrorAddr() = POSIX_EINVAL;
+		return -1;
+	}
+	return static_cast<long>(count);
+#else
+	const auto host_name = name == SC_NPROCESSORS_CONF ? _SC_NPROCESSORS_CONF : _SC_NPROCESSORS_ONLN;
+	const auto count     = ::sysconf(host_name);
+	if (count == -1) {
+		*GetErrorAddr() = POSIX_EINVAL;
+	}
+	return count;
+#endif
+}
+
 int KYTY_SYSV_ABI clock_gettime(int clock_id, LibKernel::KernelTimespec* time) {
 	PRINT_NAME();
 
@@ -2150,6 +2183,7 @@ int KYTY_SYSV_ABI UmtxOp(volatile void* address, int operation, uint64_t value,
 
 LIB_DEFINE(InitLibKernel_1_Posix) {
 	LIB_FUNC("k+AXqu2-eBc", getpagesize);
+	LIB_FUNC("mkawd0NA9ts", sysconf);
 	LIB_FUNC("lLMT9vJAck0", clock_gettime);
 	LIB_FUNC("smIj7eqzZE8", clock_getres);
 	LIB_FUNC("n88vx3C5nW8", gettimeofday);
