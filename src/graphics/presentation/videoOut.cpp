@@ -152,6 +152,19 @@ struct VideoOutOutputStatus {
 };
 static_assert(sizeof(VideoOutOutputStatus) == 0x30); // Also used by VideoOutVrrStatus.
 
+struct VideoOutResolutionStatus {
+	uint32_t full_width = 0;
+	uint32_t full_height = 0;
+	uint32_t pane_width = 0;
+	uint32_t pane_height = 0;
+	uint64_t refresh_rate = 0;
+	float    screen_size_in_inch = 0.0f;
+	uint16_t flags = 0;
+	uint16_t reserved0 = 0;
+	uint32_t reserved1[3] = {};
+};
+static_assert(sizeof(VideoOutResolutionStatus) == 48 && offsetof(VideoOutResolutionStatus, refresh_rate) == 16 && offsetof(VideoOutResolutionStatus, screen_size_in_inch) == 24);
+
 struct VideoOutOutputOptions {
 	uint32_t internalData[16] = {};
 };
@@ -1885,6 +1898,32 @@ KYTY_SYSV_ABI int VideoOutGetOutputStatus(int handle, VideoOutOutputStatus* stat
 	status->reserved[0] = 0;
 	status->reserved[1] = 0;
 	status->reserved[2] = 0;
+	ctx->mutex.Unlock();
+
+	return OK;
+}
+
+KYTY_SYSV_ABI int VideoOutGetResolutionStatus(int handle, VideoOutResolutionStatus* status) {
+	PRINT_NAME();
+
+	if (status == nullptr) {
+		return VIDEO_OUT_ERROR_INVALID_ADDRESS;
+	}
+
+	auto* ctx = DriverState().Get(handle);
+	if (ctx == nullptr) {
+		return VIDEO_OUT_ERROR_INVALID_HANDLE;
+	}
+
+	ctx->mutex.Lock();
+	*status = {};
+	status->full_width = ctx->width;
+	status->full_height = ctx->height;
+	status->pane_width = ctx->width;
+	status->pane_height = ctx->height;
+	status->refresh_rate = ctx->output_mode == VIDEO_OUT_OUTPUT_MODE_119_88HZ
+	                           ? VIDEO_OUT_REFRESH_RATE_119_88HZ
+	                           : VIDEO_OUT_REFRESH_RATE_59_94HZ;
 	ctx->mutex.Unlock();
 
 	return OK;

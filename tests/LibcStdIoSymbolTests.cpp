@@ -8,6 +8,11 @@ int main() {
   Loader::SymbolDatabase symbols;
   Libs::InitAll(&symbols);
 
+  if (symbols.FindByNid("6kPnj51T62Y", Loader::SymbolType::Func) == nullptr) {
+    std::fprintf(stderr, "VideoOut resolution status import does not resolve\n");
+    return 1;
+  }
+
   const auto *stdout_symbol =
       symbols.FindByNid("zqJhBxAKfsc", Loader::SymbolType::Object);
   const auto *stderr_symbol =
