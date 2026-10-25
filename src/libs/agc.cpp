@@ -4127,14 +4127,39 @@ static void ReleaseDmem() {
 }
 
 struct TessellationDriverState {
-	uint64_t tf_ring_base      = 0;
-	uint32_t tf_ring_size      = 0;
+	uint64_t tf_ring_base      = 0xff0000000ull;
+	uint32_t tf_ring_size      = 0x20000;
 	uint64_t hs_offchip_value0 = 0;
 	uint64_t hs_offchip_value1 = 0;
 	uint64_t hs_offchip_value2 = 0;
 };
 
 static TessellationDriverState g_tessellation_driver_state {};
+static std::mutex              g_tessellation_driver_state_mutex;
+
+static constexpr uint32_t RenderingWaitPacketHeader = 0xc0021018u;
+static constexpr uint32_t RenderingWaitPacketWords  = 4;
+
+uint32_t KYTY_SYSV_ABI AgcDriverGetWaitRenderingPacketSizeInDwords() {
+	PRINT_NAME();
+	return RenderingWaitPacketWords;
+}
+
+uint32_t KYTY_SYSV_ABI AgcDriverWaitUntilSafeForRendering(uint32_t** command,
+                                                          uint32_t capacity, uint32_t mode,
+                                                          uint32_t handle, int index) {
+	PRINT_NAME();
+
+	EXIT_NOT_IMPLEMENTED(command == nullptr || *command == nullptr ||
+	                     capacity < RenderingWaitPacketWords || mode != 0 || index < 0);
+
+	const uint32_t packet[RenderingWaitPacketWords] = {
+	    RenderingWaitPacketHeader, handle, static_cast<uint32_t>(index), mode,
+	};
+	std::copy(std::begin(packet), std::end(packet), *command);
+	*command += RenderingWaitPacketWords;
+	return 0;
+}
 
 static void submit_dcb(uint32_t* dcb, uint32_t size_in_dwords) {
 	GraphicsDbgDumpDcb("d", size_in_dwords, dcb);
@@ -4359,13 +4384,28 @@ uint32_t KYTY_SYSV_ABI AgcDriverGetEqContextId(const LibKernel::EventQueue::Kern
 int KYTY_SYSV_ABI AgcDriverSetTFRing(const volatile void* base, uint32_t size) {
 	PRINT_NAME();
 
-	g_tessellation_driver_state.tf_ring_base = reinterpret_cast<uint64_t>(base);
-	g_tessellation_driver_state.tf_ring_size = size;
+	const auto address = reinterpret_cast<uint64_t>(base);
+	{
+		std::scoped_lock lock {g_tessellation_driver_state_mutex};
+		g_tessellation_driver_state.tf_ring_base = address;
+		g_tessellation_driver_state.tf_ring_size = size;
+	}
 
 	LOGF("\t base = 0x%016" PRIx64 "\n"
 	     "\t size = 0x%08" PRIx32 "\n",
-	     g_tessellation_driver_state.tf_ring_base, g_tessellation_driver_state.tf_ring_size);
+	     address, size);
 
+	return OK;
+}
+
+int KYTY_SYSV_ABI AgcDriverGetTFRing(uintptr_t* base, uint32_t* size) {
+	PRINT_NAME();
+
+	EXIT_NOT_IMPLEMENTED(base == nullptr || size == nullptr);
+
+	std::scoped_lock lock {g_tessellation_driver_state_mutex};
+	*base = static_cast<uintptr_t>(g_tessellation_driver_state.tf_ring_base);
+	*size = g_tessellation_driver_state.tf_ring_size;
 	return OK;
 }
 
