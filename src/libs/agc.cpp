@@ -341,6 +341,40 @@ void* KYTY_SYSV_ABI AgcGetRegisterDefaults() {
 	return get_public_register_defaults(0);
 }
 
+int KYTY_SYSV_ABI AgcLinkShaders(ShaderRegister* context, ShaderRegister* primitive,
+                                 const void* reserved, const Shader* vertex, const Shader* pixel,
+                                 uint32_t primitive_type) {
+	PRINT_NAME();
+
+	if (context == nullptr || primitive == nullptr || reserved != nullptr || vertex == nullptr ||
+	    vertex->type != static_cast<uint8_t>(Prospero::ShaderBinaryType::kGs) ||
+	    vertex->specials == nullptr ||
+	    (vertex->num_output_semantics != 0 && vertex->output_semantics == nullptr) ||
+	    (pixel != nullptr &&
+	     (pixel->type != static_cast<uint8_t>(Prospero::ShaderBinaryType::kPs) ||
+	      pixel->num_input_semantics > 32 ||
+	      (pixel->num_input_semantics != 0 && pixel->input_semantics == nullptr)))) {
+		return static_cast<int>(0x8a6c0005u);
+	}
+
+	std::array<ShaderRegister, 34> context_registers {};
+	std::array<ShaderRegister, 3>  primitive_registers {};
+	const int prim_result = AgcCreatePrimState(context_registers.data(), primitive_registers.data(),
+	                                           nullptr, vertex, primitive_type);
+	if (prim_result != OK) {
+		return prim_result;
+	}
+	const int interpolant_result =
+	    AgcCreateInterpolantMapping(context_registers.data() + 2, vertex, pixel);
+	if (interpolant_result != OK) {
+		return interpolant_result;
+	}
+
+	std::copy(context_registers.begin(), context_registers.end(), context);
+	std::copy(primitive_registers.begin(), primitive_registers.end(), primitive);
+	return OK;
+}
+
 void* KYTY_SYSV_ABI AgcGetRegisterDefaults2(uint32_t ver) {
 	PRINT_NAME();
 
@@ -1063,26 +1097,25 @@ int KYTY_SYSV_ABI AgcCreatePrimState(ShaderRegister* cx_regs, ShaderRegister* uc
 	if (cx_regs != nullptr) {
 		EXIT_NOT_IMPLEMENTED(hs != nullptr && hs->specials->vgt_shader_stages_en.offset !=
 		                                          Pm4::VGT_SHADER_STAGES_EN);
-		EXIT_NOT_IMPLEMENTED(hs != nullptr && hs->specials->vgt_gs_out_prim_type.offset !=
-		                                          Pm4::VGT_GS_OUT_PRIM_TYPE);
 		EXIT_NOT_IMPLEMENTED(gs->specials->vgt_shader_stages_en.offset !=
 		                     Pm4::VGT_SHADER_STAGES_EN);
-		EXIT_NOT_IMPLEMENTED(gs->specials->vgt_gs_out_prim_type.offset !=
-		                     Pm4::VGT_GS_OUT_PRIM_TYPE);
 
 		cx_regs[0] = gs->specials->vgt_shader_stages_en;
+		if (hs != nullptr) {
+			cx_regs[0].value |= hs->specials->vgt_shader_stages_en.value;
+		}
+
 		if ((cx_regs[0].value & 0x20u) != 0) {
+			EXIT_NOT_IMPLEMENTED(gs->specials->vgt_gs_out_prim_type.offset !=
+			                     Pm4::VGT_GS_OUT_PRIM_TYPE);
 			cx_regs[1] = gs->specials->vgt_gs_out_prim_type;
+		} else if (hs != nullptr) {
+			EXIT_NOT_IMPLEMENTED(hs->specials->vgt_gs_out_prim_type.offset !=
+			                     Pm4::VGT_GS_OUT_PRIM_TYPE);
+			cx_regs[1] = hs->specials->vgt_gs_out_prim_type;
 		} else {
 			cx_regs[1].offset = Pm4::VGT_GS_OUT_PRIM_TYPE;
 			cx_regs[1].value  = GraphicsPrimitiveTypeToGsOut(prim_type);
-		}
-
-		if (hs != nullptr) {
-			cx_regs[0].value |= hs->specials->vgt_shader_stages_en.value;
-			if ((cx_regs[0].value & 0x20u) == 0) {
-				cx_regs[1] = hs->specials->vgt_gs_out_prim_type;
-			}
 		}
 	}
 
