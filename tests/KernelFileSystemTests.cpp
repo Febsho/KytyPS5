@@ -378,6 +378,18 @@ void TestFileDescriptorFlags() {
   }
 }
 
+void TestKernelDebugOutText() {
+  Loader::SymbolDatabase symbols;
+  Libs::InitLibKernel_1(&symbols);
+  const auto* symbol = symbols.FindByNid("9JYNqN6jAKI", Loader::SymbolType::Func);
+  Check(symbol != nullptr, "sceKernelDebugOutText export resolves");
+  const auto debug_out = reinterpret_cast<int (KYTY_SYSV_ABI *)(int, const char*, ...)>(symbol->vaddr);
+  constexpr char message[] = "KernelDebugOutText test 42";
+  Check(debug_out(0, "KernelDebugOutText test %d", 42) ==
+            static_cast<int>(sizeof(message) - 1),
+        "sceKernelDebugOutText formats guest arguments");
+}
+
 void TestSysmoduleReferences() {
   Loader::SymbolDatabase symbols;
   Libs::InitSysmodule_1(&symbols);
@@ -2482,6 +2494,7 @@ int main(int argc, char** argv) {
   TestAddContent(temporary.Path());
   TestRandomDevices();
   TestFileDescriptorFlags();
+  TestKernelDebugOutText();
   CheckMountRoot(temporary.Path());
   CheckUnmappedPaths(temporary.Path());
   CheckArchiveMount(temporary.Path());

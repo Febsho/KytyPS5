@@ -16,8 +16,10 @@
 #include "kernel/semaphore.h"
 #include "kernel/syncOnAddress.h"
 #include "libs/errno.h"
+#include "libs/guestPrintf.h"
 #include "libs/libs.h"
 #include "libs/network.h"
+#include "libs/vaContext.h"
 #include "loader/elf.h"
 #include "loader/runtimeLinker.h"
 #include "loader/symbolDatabase.h"
@@ -1349,6 +1351,20 @@ static int KYTY_SYSV_ABI getpid() {
 	PRINT_NAME();
 
 	return 100;
+}
+
+static int KYTY_SYSV_ABI KernelDebugOutText(VA_ARGS) {
+	VA_CONTEXT(ctx); // NOLINT(cppcoreguidelines-pro-type-member-init,hicpp-member-init)
+
+	PRINT_NAME();
+
+	const int         channel = VaArg_int(&ctx.va_list);
+	const char* const format  = VaArg_ptr<const char>(&ctx.va_list);
+	LOGF("\t channel = %d\n", channel);
+	if (format == nullptr) {
+		return LibKernel::KERNEL_ERROR_EFAULT;
+	}
+	return GetGuestVprintfFunc()(format, &ctx.va_list);
 }
 
 static void KYTY_SYSV_ABI KernelRtldSetApplicationHeapAPI(void* api[]) {
@@ -3379,6 +3395,7 @@ LIB_DEFINE(InitLibKernel_1) {
 	LIB_FUNC("959qrazPIrg", LibKernel::KernelGetProcParam);
 	LIB_FUNC("tU5e3f9gSiU", LibKernel::KernelIsTrinityMode);
 	LIB_FUNC("NH6xARDOVv8", LibKernel::KernelGetOperationMode);
+	LIB_FUNC("9JYNqN6jAKI", LibKernel::KernelDebugOutText);
 	LIB_FUNC("fTx66l5iWIA", FileSystem::KernelFsync);
 	LIB_FUNC("uvT2iYBBnkY", LibKernel::KernelSync);
 	LIB_FUNC("HoLVWNanBBc", LibKernel::getpid);
