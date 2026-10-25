@@ -16,6 +16,7 @@ LIB_DEFINE(InitAgc_1) {
 
 	LIB_FUNC("kW3GLb7QfPg", Gen5::AgcInit);
 	LIB_FUNC("Wi82ArQtAwg", Gen5::AgcGetRegisterDefaults);
+	LIB_FUNC("MqAdbRMdNz4", Gen5::AgcLinkShaders);
 }
 
 } // namespace LibAgc
