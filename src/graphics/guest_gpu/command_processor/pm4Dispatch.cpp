@@ -37,6 +37,7 @@ constexpr auto MakeContextDispatchTable() {
 	g_hw_ctx_func[Pm4::DB_STENCIL_CONTROL]             = HwCtxSetStencilControl;
 	g_hw_ctx_func[Pm4::DB_STENCILREFMASK]              = HwCtxSetStencilMask;
 	g_hw_ctx_func[Pm4::SPI_PS_INPUT_CNTL_0]            = HwCtxSetPsInput;
+	g_hw_ctx_func[Pm4::SPI_INTERP_CONTROL_0]          = HwCtxSetSpiInterpControl;
 	g_hw_ctx_func[Pm4::SPI_TMPRING_SIZE]               = HwCtxSetSpiTmpringSize;
 	g_hw_ctx_func[Pm4::DB_DEPTH_CONTROL]               = HwCtxSetDepthControl;
 	g_hw_ctx_func[Pm4::DB_EQAA]                        = HwCtxSetEqaaControl;

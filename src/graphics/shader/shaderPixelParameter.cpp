@@ -64,7 +64,8 @@ uint32_t ShaderPixelParameterLocation(const ShaderPixelInputInfo& info,
 }
 
 bool ShaderPixelParameterIsFlat(const ShaderPixelInputInfo& info, uint32_t input) {
-	return input < info.input_num && (info.interpolator_settings[input] & PsInputFlatShade) != 0 &&
+	return info.flat_shade_enable && input < info.input_num &&
+	       (info.interpolator_settings[input] & PsInputFlatShade) != 0 &&
 	       !ShaderPixelParameterIsCustom(info, input);
 }
 

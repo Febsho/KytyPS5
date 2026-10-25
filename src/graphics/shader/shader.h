@@ -171,6 +171,7 @@ enum class ShaderPixelParameterMode : uint8_t { FirstVertex, LastVertex, Rectang
 struct ShaderPixelInputInfo {
 	uint32_t                                       interpolator_settings[32]    = {0};
 	uint32_t                                       input_num                    = 0;
+	bool                                           flat_shade_enable            = false;
 	uint32_t                                       wave_size                    = 64;
 	uint32_t                                       ps_system_input_base         = 0;
 	uint32_t                                       custom_interpolation_mask    = 0;

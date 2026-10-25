@@ -70,6 +70,7 @@ uint32_t HwCtxSetViewportTransformControl(CommandProcessor&, uint32_t, uint32_t,
                                           uint32_t);
 uint32_t HwCtxSetLineControl(CommandProcessor&, uint32_t, uint32_t, const uint32_t*, uint32_t);
 uint32_t HwCtxSetPaScLineControl(CommandProcessor&, uint32_t, uint32_t, const uint32_t*, uint32_t);
+uint32_t HwCtxSetSpiInterpControl(CommandProcessor&, uint32_t, uint32_t, const uint32_t*, uint32_t);
 uint32_t HwCtxSetFovWindow(CommandProcessor&, uint32_t, uint32_t, const uint32_t*, uint32_t);
 uint32_t HwCtxSetScanModeControl(CommandProcessor&, uint32_t, uint32_t, const uint32_t*, uint32_t);
 uint32_t HwCtxSetScanModeControl1(CommandProcessor&, uint32_t, uint32_t, const uint32_t*, uint32_t);

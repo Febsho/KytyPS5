@@ -6710,6 +6710,7 @@ void TestNewShaderRecompilerVintrpTranslation() {
   };
   ShaderPixelInputInfo flat_ps_info{};
   flat_ps_info.input_num = 1;
+  flat_ps_info.flat_shade_enable = true;
   SetIdentityInterpolatorSettings(&flat_ps_info);
   flat_ps_info.interpolator_settings[0] = 0x00000400u;
 
@@ -6814,6 +6815,7 @@ void TestCustomVintrpMovTranslation() {
   };
   ShaderPixelInputInfo flat_ps_info{};
   flat_ps_info.input_num = 1;
+  flat_ps_info.flat_shade_enable = true;
   flat_ps_info.interpolator_settings[0] = 0x00000400u;
   options.input_info.pixel = &flat_ps_info;
   auto flat_result = RecompileForTest(flat_shader, options);
@@ -6884,6 +6886,7 @@ void TestVop3F16InterpolationTranslation() {
   CheckSpirvBinaryValidates(result.spirv);
 
   ps_info.interpolator_settings[0] = 0x00000400u;
+  ps_info.flat_shade_enable = true;
   auto flat_result = RecompileForTest(shader, options);
   Check(SpirvExtInstCount(flat_result.spirv, 62u) == 2u &&
             !SpirvContainsCapability(flat_result.spirv, 5284u) &&

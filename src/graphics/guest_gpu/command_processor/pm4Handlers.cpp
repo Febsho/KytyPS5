@@ -720,6 +720,14 @@ KYTY_HW_CTX_PARSER(HwCtxSetPaScLineControl) {
 	return 1;
 }
 
+KYTY_HW_CTX_PARSER(HwCtxSetSpiInterpControl) {
+	EXIT_NOT_IMPLEMENTED(cmd_id != 0xC0016900);
+	EXIT_NOT_IMPLEMENTED(cmd_offset != Pm4::SPI_INTERP_CONTROL_0);
+	EXIT_NOT_IMPLEMENTED(KYTY_PM4_GET(buffer[0], SPI_INTERP_CONTROL_0, PNT_SPRITE_ENA) != 0);
+	cp.GetCtx().SetSpiInterpControl0(buffer[0]);
+	return 1;
+}
+
 KYTY_HW_CTX_PARSER(HwCtxSetModeControl) {
 	EXIT_NOT_IMPLEMENTED(cmd_id != 0xC0016900);
 	EXIT_NOT_IMPLEMENTED(cmd_offset != Pm4::PA_SU_SC_MODE_CNTL);
@@ -3104,6 +3112,10 @@ void GraphicsInitJmpTablesCxIndirect() {
 	g_hw_ctx_indirect_func[Pm4::PA_SC_LINE_CNTL] = [](KYTY_HW_CTX_INDIRECT_ARGS) {
 		// Zero is the neutral/default state. Other line-drawing controls are not yet modeled.
 		EXIT_NOT_IMPLEMENTED(value != 0);
+	};
+	g_hw_ctx_indirect_func[Pm4::SPI_INTERP_CONTROL_0] = [](KYTY_HW_CTX_INDIRECT_ARGS) {
+		EXIT_NOT_IMPLEMENTED(KYTY_PM4_GET(value, SPI_INTERP_CONTROL_0, PNT_SPRITE_ENA) != 0);
+		cp.GetCtx().SetSpiInterpControl0(value);
 	};
 	g_hw_ctx_indirect_func[Pm4::PA_SC_FOV_WINDOW_LR] = [](KYTY_HW_CTX_INDIRECT_ARGS) {
 		HwCtxIgnoreFovWindow(value);
