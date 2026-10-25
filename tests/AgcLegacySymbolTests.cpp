@@ -1,6 +1,7 @@
 #include "common/emulatorConfig.h"
 #include "graphics/guest_gpu/pm4.h"
 #include "graphics/shader/shader.h"
+#include "libs/agc.h"
 #include "libs/libs.h"
 #include "loader/symbolDatabase.h"
 
@@ -75,6 +76,34 @@ int main() {
 	    context[2].offset != Libs::Graphics::Pm4::SPI_PS_INPUT_CNTL_0 ||
 	    context[33].offset != Libs::Graphics::Pm4::SPI_PS_INPUT_CNTL_0 + 31) {
 		std::fprintf(stderr, "legacy Agc sceAgcLinkShaders register output is incorrect\n");
+		Config::Shutdown();
+		return 1;
+	}
+
+	const auto* create_shader_symbol =
+	    symbols.FindByNid("f3dg2CSgRKY", Loader::SymbolType::Func);
+	if (create_shader_symbol == nullptr || create_shader_symbol->vaddr == 0) {
+		std::fprintf(stderr, "legacy Agc sceAgcCreateShader import is not registered\n");
+		Config::Shutdown();
+		return 1;
+	}
+	Config::ConfigOptions debug_config;
+	debug_config.graphics_debug_dump_enabled = true;
+	Config::Load(debug_config);
+	Libs::Graphics::ShaderInit();
+	alignas(256) std::array<uint32_t, 1> shader_code {};
+	Libs::Graphics::Shader shader {};
+	shader.file_header = 0x34333231;
+	shader.version     = 0x18;
+	shader.shader_size = sizeof(shader_code);
+	shader.type = static_cast<uint8_t>(Libs::Graphics::Prospero::ShaderBinaryType::kFs);
+	Libs::Graphics::Shader* created_shader = nullptr;
+	auto create_shader = reinterpret_cast<int(KYTY_SYSV_ABI*)(
+	    Libs::Graphics::Shader**, void*, const volatile void*)>(create_shader_symbol->vaddr);
+	if (create_shader(&created_shader, &shader, shader_code.data()) != 0 ||
+	    created_shader != &shader) {
+		std::fprintf(stderr,
+		             "Agc sceAgcCreateShader failed with optional special registers absent\n");
 		Config::Shutdown();
 		return 1;
 	}
