@@ -611,7 +611,9 @@ namespace LibcInternal {
 
 LIB_VERSION("LibcInternal", 1, "LibcInternal", 1, 1);
 
-static uint32_t g_need_flag = 1;
+static uint32_t g_need_flag              = 1;
+static FILE*    g_standard_output_stream = stdout;
+static FILE*    g_standard_error_stream  = stderr;
 
 int KYTY_SYSV_ABI vprintf(const char* str, VaList* c) {
 	PRINT_NAME();
@@ -764,6 +766,9 @@ LIB_DEFINE(InitLibcInternal_1) {
 
 	LIB_OBJECT("ZT4ODD2Ts9o", &LibcInternal::g_need_flag);
 	LIB_OBJECT("2sWzhYqFH4E", stdout);
+	// Legacy imports address FILE* slots, so expose stable host-side pointer storage.
+	LIB_OBJECT("zqJhBxAKfsc", &LibcInternal::g_standard_output_stream);
+	LIB_OBJECT("as8Od-tH1BI", &LibcInternal::g_standard_error_stream);
 
 	LIB_FUNC("GMpvxPFW924", LibcInternal::vprintf);
 	LIB_FUNC("MUjC4lbHrK4", LibcInternal::fflush);
