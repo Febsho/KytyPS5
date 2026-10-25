@@ -378,6 +378,23 @@ void TestFileDescriptorFlags() {
   }
 }
 
+void TestPosixSysconf() {
+  Loader::SymbolDatabase symbols;
+  Libs::InitLibKernel_1(&symbols);
+  const auto* symbol = symbols.FindByNid("mkawd0NA9ts", Loader::SymbolType::Func);
+  Check(symbol != nullptr, "POSIX sysconf export resolves");
+  const auto sysconf = reinterpret_cast<long (KYTY_SYSV_ABI *)(int)>(symbol->vaddr);
+  constexpr int SC_NPROCESSORS_CONF = 57;
+  constexpr int SC_NPROCESSORS_ONLN = 58;
+  const auto configured = sysconf(SC_NPROCESSORS_CONF);
+  const auto online = sysconf(SC_NPROCESSORS_ONLN);
+  Check(configured >= 1 && online >= 1 && configured >= online,
+        "sysconf reports valid configured and online processor counts");
+  *Libs::Posix::GetErrorAddr() = 0;
+  Check(sysconf(-1) == -1 && *Libs::Posix::GetErrorAddr() == Libs::Posix::POSIX_EINVAL,
+        "sysconf rejects unsupported selectors with EINVAL");
+}
+
 void TestSysmoduleReferences() {
   Loader::SymbolDatabase symbols;
   Libs::InitSysmodule_1(&symbols);
@@ -2482,6 +2499,7 @@ int main(int argc, char** argv) {
   TestAddContent(temporary.Path());
   TestRandomDevices();
   TestFileDescriptorFlags();
+  TestPosixSysconf();
   CheckMountRoot(temporary.Path());
   CheckUnmappedPaths(temporary.Path());
   CheckArchiveMount(temporary.Path());
