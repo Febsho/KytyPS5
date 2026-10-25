@@ -4731,6 +4731,15 @@ void TestNewShaderDecoderArchitecture() {
                 program_direct.word_count,
         "program decoder diverged from the single-instruction decoder");
 
+  const uint32_t s_clause_code[] = {EncodeSopp(0x21, 1), EncodeSopp(0x01, 0)};
+  Program s_clause_program;
+  ShaderRecompiler::Decoder::DecodeProgram(s_clause_code, s_clause_program);
+  Check(s_clause_program.instructions.size() == 2u &&
+            s_clause_program.instructions.front().opcode == Opcode::S_CLAUSE &&
+            s_clause_program.instructions.front().src_count == 1u &&
+            s_clause_program.instructions.front().src0.value == 1u,
+        "decoder rejected or misdecoded GFX10 S_CLAUSE");
+
   const uint32_t cmp_eq_u64_code[] = {0xd4e2006au, 0x0000d47eu};
   Instruction cmp_eq_u64;
   ShaderRecompiler::Decoder::DecodeInstruction(cmp_eq_u64_code, 0u, cmp_eq_u64);
