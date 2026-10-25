@@ -108,6 +108,35 @@ int main() {
 		return 1;
 	}
 
+	const auto* set_sh_registers_size_symbol =
+	    symbols.FindByNid("yUBESvCCJ4I", Loader::SymbolType::Func);
+	const auto* set_uc_registers_indirect_size_symbol =
+	    symbols.FindByNid("UQGTw4xRlcM", Loader::SymbolType::Func);
+	const auto* acb_dispatch_indirect_size_symbol =
+	    symbols.FindByNid("PxKWV2fVAps", Loader::SymbolType::Func);
+	if (set_sh_registers_size_symbol == nullptr ||
+	    set_uc_registers_indirect_size_symbol == nullptr ||
+	    acb_dispatch_indirect_size_symbol == nullptr) {
+		std::fprintf(stderr, "AGC command-buffer size imports are not registered\n");
+		Config::Shutdown();
+		return 1;
+	}
+	auto get_set_sh_registers_size = reinterpret_cast<uint32_t(KYTY_SYSV_ABI*)(uint32_t)>(
+	    set_sh_registers_size_symbol->vaddr);
+	auto get_set_uc_registers_indirect_size =
+	    reinterpret_cast<uint64_t(KYTY_SYSV_ABI*)()>(
+	        set_uc_registers_indirect_size_symbol->vaddr);
+	auto get_acb_dispatch_indirect_size = reinterpret_cast<uint32_t(KYTY_SYSV_ABI*)()>(
+	    acb_dispatch_indirect_size_symbol->vaddr);
+	if (get_set_sh_registers_size(0) != 0 || get_set_sh_registers_size(1) != 12 ||
+	    get_set_sh_registers_size(3) != 36 ||
+	    get_set_uc_registers_indirect_size() != 20 ||
+	    get_acb_dispatch_indirect_size() != 16) {
+		std::fprintf(stderr, "AGC command-buffer size query results are incorrect\n");
+		Config::Shutdown();
+		return 1;
+	}
+
 	const auto* wait_size_symbol =
 	    symbols.FindByNid("0MtUJ3BpGhE", Loader::SymbolType::Func);
 	const auto* wait_symbol = symbols.FindByNid("u8BkdHb1+Po", Loader::SymbolType::Func);

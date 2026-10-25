@@ -1957,6 +1957,12 @@ uint32_t* KYTY_SYSV_ABI AgcCbSetShRegistersDirect(CommandBuffer*                
 	return first_cmd;
 }
 
+uint32_t KYTY_SYSV_ABI AgcCbSetShRegistersDirectGetSize(uint32_t num_regs) {
+	PRINT_NAME();
+
+	return num_regs * 3u * sizeof(uint32_t);
+}
+
 uint32_t* KYTY_SYSV_ABI AgcCbSetUcRegistersDirect(CommandBuffer*                 buf,
                                                   const volatile ShaderRegister* regs,
                                                   uint32_t                       num_regs) {
@@ -2382,6 +2388,12 @@ uint32_t* KYTY_SYSV_ABI AgcDcbSetUcRegistersIndirect(CommandBuffer*             
 	reg_indirect_write_packet(cmd, vaddr, num_regs, RegIndirectPacket::Uc);
 
 	return cmd;
+}
+
+uint64_t KYTY_SYSV_ABI AgcDcbSetUcRegistersIndirectGetSize() {
+	PRINT_NAME();
+
+	return RegIndirectPacketSizeDw * sizeof(uint32_t);
 }
 
 uint32_t* KYTY_SYSV_ABI AgcDcbSetIndexSize(CommandBuffer* buf, uint8_t index_size,
@@ -3230,6 +3242,12 @@ uint32_t* KYTY_SYSV_ABI AgcAcbDispatchIndirect(CommandBuffer*       buf,
 	cmd[3] = (modifier & 0xa038u) | 0x41u;
 
 	return cmd;
+}
+
+uint32_t KYTY_SYSV_ABI AgcAcbDispatchIndirectGetSize() {
+	PRINT_NAME();
+
+	return 4u * sizeof(uint32_t);
 }
 
 uint32_t* KYTY_SYSV_ABI AgcAcbWriteData(CommandBuffer* buf, uint8_t dst, uint8_t cache_policy,
