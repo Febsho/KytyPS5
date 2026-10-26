@@ -242,6 +242,10 @@ struct ImageHeapTestAccess {
   static ImageId ImageOf(const ImageHeap &heap, uint32_t entry) {
     return Element(heap, entry).binding.image_id;
   }
+  // Whether the newest table no longer watches its last page.
+  static bool TailPageDirty(const ImageHeap &heap) {
+    return heap.m_memories.back()->dirty_pages.back() != 0u;
+  }
 };
 
 struct TextureCacheTestAccess {
@@ -574,6 +578,10 @@ struct RenderExecutorTestAccess {
 
   static void ResetBindings(RenderExecutor &executor) {
     executor.ResetBindings();
+  }
+
+  static bool ResolveColorTargets(RenderExecutor &executor, CommandBuffer &buffer) {
+    return executor.ResolveColorTargets(buffer, 0);
   }
 
   static bool BoundImagesInOrder(const RenderExecutor &executor, ImageId first,
@@ -1432,6 +1440,7 @@ struct GraphicsCase {
   u32 pixel_custom_interpolation_mask = 0;
   u32 width = 1;
   std::vector<u32> object_ids;
+  std::vector<u32> gds_initial;
 };
 
 struct CompiledShader {
@@ -5507,6 +5516,93 @@ public:
                   ImageHeapTestAccess::ImageOf(heap, filtered.slots[240]),
               "a reactivated view kept an element whose image slot holds a new image");
 
+      // Dynamic-resolution tables hold a descriptor per extent of one render target, each with
+      // its own pitch. Only the first gets an image; the others wait until an image of their
+      // extent exists.
+      const auto extent = [&](uint32_t width) {
+        auto words = descriptor(50, Format::k8_8_8_8UNorm);
+        words[2] = (width - 1u) | (3u << 14u);
+        return words;
+      };
+      const auto resolve = [&](const auto &root, const auto &words) {
+        return executor.ResolveTexture(root, {.dwords = words, .dword_count = 8u}).image_id;
+      };
+      write(50, extent(64));
+      write(51, extent(128));
+      Require(name, "extents", acquire(sampled), "the view was declined");
+      draw();
+      Require(name, "held extent",
+              ImageHeapTestAccess::ImageOf(heap, filtered.slots[400]) &&
+                  !ImageHeapTestAccess::ImageOf(heap, filtered.slots[408]),
+              "a second extent of one address got its own image");
+      // A non-heap lookup, as for a render target, creates the second extent.
+      const auto rendered = resolve(sampled, extent(128));
+      Require(name, "rendered extent", acquire(sampled), "the view was declined");
+      draw();
+      Require(name, "held descriptor",
+              rendered && ImageHeapTestAccess::ImageOf(heap, filtered.slots[408]) == rendered,
+              "a held descriptor missed the image made for its extent");
+      // A released held element's index is reused once its tick ends; it is no longer held.
+      write(52, extent(256));
+      Require(name, "third extent", acquire(sampled), "the view was declined");
+      draw();
+      const auto held = filtered.slots[416];
+      write(52, {});
+      Require(name, "released extent", acquire(sampled), "the view was declined");
+      draw();
+      write(53, descriptor(53, Format::k8_8_8_8UNorm));
+      Require(name, "reused element", acquire(sampled), "the view was declined");
+      draw();
+      Require(name, "retry", acquire(sampled), "the view was declined");
+      draw();
+      Require(name, "reused held element", held != 0u && filtered.slots[424] == held,
+              "a reused element was retried as the held element it replaced");
+      // A 2D view of a heap-pinned volume is another image type, not another extent.
+      auto plane_root = sampled;
+      plane_root.heap = true;
+      auto volume_root = plane_root;
+      volume_root.dimension = ShaderRecompiler::Decoder::ImageDimension::Dim3D;
+      auto volume_words = descriptor(54, Format::k8_8_8_8UNorm);
+      volume_words[3] = DstSel(4, 5, 6, 7) |
+                        (static_cast<uint32_t>(Prospero::ImageType::kColor3D) << 28u);
+      volume_words[4] = 3u;
+      const auto volume = resolve(volume_root, volume_words);
+      Require(name, "volume", static_cast<bool>(volume), "a volume texture was not resolved");
+      auto &volume_refs = textures.GetImage(volume).heap_refs;
+      volume_refs.fetch_add(1u);
+      const auto plane = resolve(plane_root, descriptor(54, Format::k8_8_8_8UNorm));
+      volume_refs.fetch_sub(1u);
+      Require(name, "volume plane", static_cast<bool>(plane),
+              "a 2D view of a pinned volume was held as another extent");
+
+      // A table follows its descriptor's size and keeps its elements. Growing probes the new
+      // words, shrinking releases them, and a draw sees one size.
+      write(table_size / 32u, descriptor(40, Format::k8_8_8_8UNorm));
+      const auto elements = ImageHeapTestAccess::ElementCount(heap);
+      const IR::ImageHeapRequest grown{table, table_size * 2u, 32u, 0u, table_size / 16u, &sampled};
+      Require(name, "grown table",
+              heap.Acquire(grown, view) && view.slot_count == table_size / 2u &&
+                  ImageHeapTestAccess::MemoryCount(heap) == 1u,
+              "a grown table was declined or kept apart from its old size");
+      draw();
+      const auto added = ImageHeapTestAccess::ImageOf(heap, filtered.slots[table_size / 4u]);
+      Require(name, "grown descriptor",
+              added && ImageHeapTestAccess::ElementCount(heap) <= elements + 1u,
+              "a grown table missed its new descriptor or interned its old ones again");
+      Require(name, "shrunk table",
+              acquire(sampled) && view.slot_count == table_size / 4u &&
+                  filtered.slots.back() == 0u && textures.GetImage(added).heap_refs.load() == 0u,
+              "a shrunk table kept a descriptor past its end");
+      Require(name, "one size per draw",
+              heap.Acquire(grown, view) && view.slot_count == table_size / 4u,
+              "a draw saw two sizes of one table");
+      draw();
+      Require(name, "regrown table", heap.Acquire(grown, view), "a regrown table was declined");
+      draw();
+      Require(name, "regrown descriptor",
+              ImageHeapTestAccess::ImageOf(heap, filtered.slots[table_size / 4u]) == added,
+              "a table grown again after shrinking missed its descriptor");
+
       heap.UnmapMemory(table, table_size);
       Require(name, "unmapped table",
               ImageHeapTestAccess::MemoryCount(heap) == 0u &&
@@ -5518,6 +5614,13 @@ public:
               acquire(sampled, idle_table) && view.kinds.empty() &&
                   ImageHeapTestAccess::MemoryCount(heap) == 1u,
               "an all-null table was not kept resident");
+      // A write past a table's end, in its watched tail page, must unwatch the page.
+      constexpr uint64_t unaligned_table = base + 0x1a0800;
+      Require(name, "tail page fault",
+              acquire(sampled, unaligned_table) &&
+                  context.HandleFault(PageFaultAccess::Write, unaligned_table + table_size) &&
+                  ImageHeapTestAccess::TailPageDirty(heap),
+              "a write fault next to a table left its page watched");
       draw();
       context.UnmapMemory(base, idle_table - base);
       scheduler.Finish();
@@ -7592,6 +7695,40 @@ public:
           std::fill_n(expected.begin() + word, block_bytes / sizeof(uint32_t), replacement);
         }
         verify_array();
+      }
+
+      // Image heaps keep a BC6H array and a raw block view of its first cube resident together.
+      // That raw read views the BC image and creates its view; a raw writer or a raw image of
+      // other levels, whose layers lie elsewhere, still replaces it.
+      for (uint32_t scenario = 0; scenario < 3; ++scenario) {
+        const uint64_t address = base + 0x1b00000 + scenario * 0x180000;
+        auto bc = MakeLinearDesc(address, 0, vk::Format::eBc6HUfloatBlock,
+            Prospero::BufferFormat::kBc6UFloat, Prospero::ImageType::kColor2D,
+            {256, 256, 1}, 12, 16, 1);
+        auto raw = MakeLinearDesc(address, 0, vk::Format::eR32G32B32A32Uint,
+            Prospero::BufferFormat::k32_32_32_32UInt, Prospero::ImageType::kColor2D,
+            {64, 64, 1}, 6, 16, 1);
+        bc.info.resources.levels = 6;
+        raw.info.resources.levels = scenario == 2 ? 1 : 6;
+        for (auto *desc : {&bc, &raw}) {
+          desc->info.tile_mode = Prospero::TileMode::kStandard4KB;
+          desc->info.UpdateSize();
+          desc->view_info.level_count = desc->info.resources.levels;
+        }
+        if (scenario == 1) {
+          raw.type = BindingType::Storage;
+          raw.view_info.usage = vk::ImageUsageFlagBits::eStorage;
+        }
+        const auto bc_image = texture_cache.FindImage(bc);
+        (void)texture_cache.FindTexture(bc_image, bc);
+        const auto raw_image = texture_cache.FindImage(raw);
+        const bool viewed = scenario == 0;
+        Require(name, "raw block view of a BC image",
+                (raw_image == bc_image) == viewed &&
+                    texture_cache.GetImage(bc_image).registered == viewed,
+                "a raw block read did not view the clean BC image, or a raw writer or "
+                "raw image of other levels kept it");
+        if (viewed) (void)texture_cache.FindTexture(raw_image, raw);
       }
 
       // A write through a separate buffer must not replace untouched image
@@ -10550,6 +10687,98 @@ public:
     std::printf("[gpu]     %-32s ok\n", name);
   }
 
+  void CheckColorResolvePlacedTarget() {
+    constexpr const char *name = "ColorResolvePlacedTarget";
+    constexpr uintptr_t base = 0x0000000209000000ull;
+    constexpr uint64_t destination = base + 0x100000;
+    constexpr uint32_t extent = 256;
+    constexpr uint64_t allocation_alignment = 0x10000;
+    constexpr uint64_t allocation_size = 0x200000;
+    EnsureRuntimeContext();
+
+    int64_t direct_offset = -1;
+    Require(name, "direct allocation",
+            Libs::LibKernel::Memory::KernelAllocateDirectMemory(
+                0, Libs::LibKernel::Memory::KernelGetDirectMemorySize(),
+                allocation_size, allocation_alignment, 0, &direct_offset) == 0,
+            "resolve direct-memory allocation failed");
+    void *mapped = reinterpret_cast<void *>(base);
+    Require(name, "direct mapping",
+            Libs::LibKernel::Memory::KernelMapDirectMemory(
+                &mapped, allocation_size, 0x3, 0x10, direct_offset,
+                allocation_alignment) == 0 &&
+                mapped == reinterpret_cast<void *>(base),
+            "resolve fixed mapping failed");
+
+    for (const bool mip : {false, true}) {
+      std::memset(mapped, 0, allocation_size);
+      RenderContext context(m_runtime_context);
+      auto &scheduler = context.GetCommandScheduler();
+      HW::Context registers{};
+      HW::UserConfig user_config{};
+      HW::Shader shaders{};
+      const auto set_target = [&](uint32_t slot, uint64_t address, uint32_t side,
+                                  uint32_t layers, uint32_t levels) {
+        registers.SetColorBase(slot, {.addr = address});
+        registers.SetColorInfo(slot, {.format = Prospero::ChannelLayout::k8_8_8_8,
+                                      .channel_type = Prospero::ChannelType::kUNorm,
+                                      .channel_order = Prospero::ChannelOrder::kStandard});
+        registers.SetColorView(slot, {.last_array_slice_index = layers - 1});
+        registers.SetColorAttrib2(slot, {.height = side - 1, .width = side - 1,
+                                         .num_mip_levels = levels - 1});
+        registers.SetColorAttrib3(slot, {.tile_mode = Prospero::TileMode::kRenderTarget,
+                                         .dimension = 1,
+                                         .metadata_pipe_aligned = true});
+      };
+      set_target(1, destination, extent, mip ? 1 : 2, mip ? 2 : 1);
+      registers.SetRenderTargetMask(0xff);
+      scheduler.Begin(registers, user_config, shaders);
+      auto &executor = context.GetRenderExecutor();
+      context.MapMemory(base, allocation_size);
+
+      RenderColorInfo whole{};
+      RenderExecutorTestAccess::ResolveRenderColorTarget(executor, scheduler.Current(),
+                                                         whole, 1);
+      const auto &layout = whole.desc.info.mip_layout;
+      const auto side = mip ? extent / 2 : extent;
+      set_target(1, destination + (mip ? layout[1].offset : layout[0].size / 2), side, 1, 1);
+      set_target(0, base, side, 1, 1);
+      RenderColorInfo placed{};
+      RenderColorInfo source{};
+      RenderExecutorTestAccess::ResolveRenderColorTarget(executor, scheduler.Current(),
+                                                         placed, 1);
+      RenderExecutorTestAccess::ResolveRenderColorTarget(executor, scheduler.Current(),
+                                                         source, 0);
+      vk::ClearValue red{};
+      red.color.float32 = std::array{1.0f, 0.0f, 0.0f, 1.0f};
+      TextureCacheTestAccess::ClearImage(context.GetTextureCache(), scheduler.Current(),
+                                         source.image_id,
+                                         {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}, red);
+      registers.SetColorControl({.mode = 3});
+      Require(name, "resolve",
+              RenderExecutorTestAccess::ResolveColorTargets(executor, scheduler.Current()),
+              "the resolve draw was not consumed");
+      Require(name, "placed subresource",
+              ReadCachedTexel(name, context, whole.image_id, {}, {1, 1, 1}, mip ? 0 : 1,
+                              mip ? 1 : 0) == std::vector<u32>{0xff0000ffu} &&
+                  ReadCachedTexel(name, context, whole.image_id) == std::vector<u32>{0u},
+              "the resolve wrote the register level and layer, not the placed ones");
+
+      RenderExecutorTestAccess::ResetBindings(executor);
+      context.UnmapMemory(base, allocation_size);
+      scheduler.Finish();
+    }
+
+    Require(name, "unmap direct backing",
+            Libs::LibKernel::Memory::KernelMunmap(base, allocation_size) == 0,
+            "resolve direct mapping release failed");
+    Require(name, "release direct backing",
+            Libs::LibKernel::Memory::KernelReleaseDirectMemory(
+                direct_offset, allocation_size) == 0,
+            "resolve direct-memory allocation release failed");
+    std::printf("[gpu]     %-32s ok\n", name);
+  }
+
   void CheckRenderExecutorColorVolumeDiscovery() {
     constexpr const char *name = "RenderExecutorColorVolumeDiscovery";
     constexpr uintptr_t base = 0x0000000203e00000ull;
@@ -11320,7 +11549,7 @@ public:
     constexpr uintptr_t base = 0x0000000204c00000ull;
     constexpr uint64_t size = 0x10000;
     constexpr auto output = base + 0x2000;
-    constexpr u32 value = 0x80000578u;
+    constexpr u32 value = 0x80000578u, fill = 0xa5a5a5a5u;
     std::array<std::vector<u32>, 2> codes;
     for (u32 scalar = 0; scalar < codes.size(); ++scalar) {
       auto &code = codes[scalar];
@@ -11359,15 +11588,18 @@ public:
       context.MapMemory(base, size);
       auto &cache = context.GetBufferCache();
       auto &shaders = processor.GetShCtx();
-      struct Case { u32 mode, records; bool scalar; u32 expected; };
-      constexpr Case cases[]{{2, 1, false, value}, {2, 0, false, 0},
+      // The first case stores through a NumRecords=0 output, which binds the shared null
+      // buffer; a later NumRecords=0 load must still read zero.
+      struct Case { u32 mode, records; bool scalar; u32 expected; bool null_output = false; };
+      constexpr Case cases[]{{3, 4, false, fill, true},
+                              {2, 1, false, value}, {2, 0, false, 0},
                               {3, 1, false, 0}, {3, 4, false, value},
                               {2, 1, true, 0}, {2, 4, true, value}};
       for (const auto wave : {32u, 64u}) {
         for (const auto prefix : {0u, 8u}) {
           const auto address = base + 0x1000 + prefix;
           for (const auto test : cases) {
-            cache.FillBuffer(output, wave * sizeof(u32), 0xa5a5a5a5u, false);
+            cache.FillBuffer(output, wave * sizeof(u32), fill, false);
             shaders.SetCsShader({
                 .data_addr = reinterpret_cast<uint64_t>(codes[test.scalar].data()),
                 .num_thread_x = wave, .num_thread_y = 1, .num_thread_z = 1,
@@ -11379,7 +11611,7 @@ public:
                 (static_cast<u32>(Prospero::BufferFormat::k32UInt) << 12u) |
                 (test.mode << 28u);
             out.UpdateAddress48(output);
-            out.fields[2] = wave * sizeof(u32);
+            out.fields[2] = test.null_output ? 0u : wave * sizeof(u32);
             out.fields[3] = DstSel(4, 5, 6, 7) |
                 (static_cast<u32>(Prospero::BufferFormat::k32UInt) << 12u) | (3u << 28u);
             for (u32 i = 0; i < 4; ++i) {
@@ -12277,6 +12509,8 @@ public:
         PackedCase{vk::Format::eR16G16Unorm, 0x0000ffffu, {1.0f, 0.0f}},
         PackedCase{vk::Format::eR16G16Unorm, 0x80000001u,
                    {1.0f / 65535.0f, 32768.0f / 65535.0f}},
+        PackedCase{vk::Format::eR16G16B16A16Unorm, 0x000180000000ffffull,
+                   {1.0f, 0.0f, 32768.0f / 65535.0f, 1.0f / 65535.0f}},
         PackedCase{vk::Format::eR8Unorm, 0xffffff80u, {128.0f / 255.0f}},
         PackedCase{vk::Format::eR8G8Unorm, 0xffff40ffu, {1.0f, 64.0f / 255.0f}},
     };
@@ -12312,11 +12546,19 @@ public:
     };
     for (const auto &test : {UintCase{vk::Format::eR8Uint, 0xffffff05u, {5u}},
                              UintCase{vk::Format::eR8G8Uint, 0xffff0a05u, {5u, 10u}},
-                             UintCase{vk::Format::eR16Uint, 0xffff1234u, {0x1234u}}}) {
-      Require(name, "packed unsigned color clear",
+                             UintCase{vk::Format::eR16Uint, 0xffff1234u, {0x1234u}},
+                             UintCase{vk::Format::eR16G16B16A16Uint, 0x4444333322221111ull,
+                                      {0x1111u, 0x2222u, 0x3333u, 0x4444u}},
+                             UintCase{vk::Format::eR16G16B16A16Sint, 0x7fff0001ffff8000ull,
+                                      {0xffff8000u, 0xffffffffu, 1u, 0x7fffu}},
+                             UintCase{vk::Format::eR32G32Uint, 0x89abcdef01234567ull,
+                                      {0x01234567u, 0x89abcdefu}},
+                             UintCase{vk::Format::eR32G32Sint, 0x80000000ffffffffull,
+                                      {0xffffffffu, 0x80000000u}}}) {
+      Require(name, "packed integer color clear",
               DecodePackedColorClear(test.format, test.word, clear) &&
                   std::bit_cast<std::array<uint32_t, 4>>(clear.uint32) == test.channels,
-              "narrow unsigned clear lost a channel or kept bits of the next one");
+              "integer clear lost a channel, its sign or bits of the next one");
     }
     Require(name, "R8 DWORD fill",
             !DecodeColorDwordFill(vk::Format::eR8Uint, 0x01020304u, clear) &&
@@ -12332,6 +12574,10 @@ public:
             DecodeColorDwordFill(vk::Format::eR32G32Sfloat, 0x3f800000u, clear) &&
                 clear.float32[0] == 1.0f && clear.float32[1] == 1.0f,
             "a repeated DWORD fill was decoded as a two-register clear");
+    Require(name, "RGBA16 DWORD fill",
+            DecodeColorDwordFill(vk::Format::eR16G16B16A16Uint, 0x22221111u, clear) &&
+                clear.uint32[2] == 0x1111u && clear.uint32[3] == 0x2222u,
+            "a DWORD fill did not repeat across the 64-bit pixel");
     constexpr uintptr_t base = 0x0000000204100000ull;
     constexpr uint64_t allocation_size = 0x1000000;
     constexpr uint64_t allocation_alignment = 0x10000;
@@ -17758,7 +18004,7 @@ public:
   }
 
   std::vector<u32> ReadBuffer(const char *shader_name, const Buffer &buffer,
-                              size_t dword_count) {
+                              size_t dword_count, size_t first_dword = 0) {
     if (!buffer.coherent) {
       vk::MappedMemoryRange range{};
       range.sType = vk::StructureType::eMappedMemoryRange;
@@ -17775,7 +18021,7 @@ public:
               m_device.mapMemory(buffer.memory, 0, buffer.size, {}, &data),
               "vkMapMemory");
     std::vector<u32> ret(dword_count, 0);
-    std::memcpy(ret.data(), data, dword_count * sizeof(u32));
+    std::memcpy(ret.data(), static_cast<const u32 *>(data) + first_dword, dword_count * sizeof(u32));
     m_device.unmapMemory(buffer.memory);
     return ret;
   }
@@ -18005,6 +18251,7 @@ public:
           Require(test.name, "dispatch", info.range <= buffer.size,
                   "storage buffer descriptor range exceeds backing buffer");
         }
+        shader_data[layout.MemorySizeDword() + index] = static_cast<u32>(info.range);
       }
       vk::WriteDescriptorSet write{};
       write.sType = vk::StructureType::eWriteDescriptorSet;
@@ -19675,6 +19922,40 @@ public:
       }
       Require(name, "packed rounding program distinction", half_up_program != truncate_program,
               "half-up and truncate exports shared one shader specialization");
+      // UINT and SINT targets give their exports integer outputs.
+      registers.Reset();
+      registers.SetViewportTransformControl(0x300);
+      registers.SetRenderTargetMask(0xffu);
+      registers.SetShaderMask(0xffu);
+      shaders.SetPsShaderBase(pixel_address);
+      for (const auto [slot, type] : {std::pair{0u, Prospero::ChannelType::kUInt},
+                                      std::pair{1u, Prospero::ChannelType::kSInt}}) {
+        registers.SetTargetOutputMode(slot, 9);
+        registers.SetColorBase(slot, {.addr = depth_address + 0x10000 * (slot + 1)});
+        registers.SetColorInfo(slot, {.format = Prospero::ChannelLayout::k32, .channel_type = type,
+                                      .channel_order = Prospero::ChannelOrder::kStandard});
+        registers.SetColorAttrib2(slot, {.height = extent - 1, .width = extent - 1});
+        registers.SetColorAttrib3(slot, {.tile_mode = Prospero::TileMode::kLinear, .dimension = 1});
+      }
+      native_programs();
+      Require(name, "integer target outputs",
+              pixel.target_uint_mask == 1u && pixel.target_sint_mask == 2u,
+              "UINT and SINT targets did not select integer export outputs");
+      // MRT1 is the second blend source of a dual-source float target 0, not integer target 1.
+      HW::BlendControl dual_blend{};
+      dual_blend.enable = true;
+      dual_blend.color_srcblend = static_cast<uint8_t>(Prospero::BlendFactor::kSrc1Color);
+      registers.SetBlendControl(0, dual_blend);
+      for (const auto [slot, type] : {std::pair{0u, Prospero::ChannelType::kFloat},
+                                      std::pair{1u, Prospero::ChannelType::kUInt}}) {
+        registers.SetColorInfo(slot, {.format = Prospero::ChannelLayout::k32, .channel_type = type,
+                                      .channel_order = Prospero::ChannelOrder::kStandard});
+        native_programs();
+        Require(name, "dual-source float outputs",
+                pixel.dual_source_blending && pixel.target_uint_mask == 0u &&
+                    pixel.target_sint_mask == 0u,
+                "the second blend source kept the integer type of render target 1");
+      }
       DestroyBuffer(&packed_output);
       m_device.destroySampler(packed_sampler);
       DestroyBuffer(&stencil_readback);
@@ -19752,8 +20033,40 @@ public:
       push_constant_range.size = ShaderRecompiler::IR::NativePushConstantSize;
     }
 
+    using Kind = ShaderRecompiler::IR::DescriptorBindingKind;
+    const bool uses_gds = !test.gds_initial.empty();
+    const auto gds_bit = uint64_t{1} << static_cast<u32>(Kind::Gds);
+    Require(test.name, "graphics", fragment_bind.descriptor_mask == (uses_gds ? gds_bit : 0u),
+            "a graphics case binds GDS only, and only with initial GDS data");
+    Buffer gds_buffer;
+    vk::DescriptorBufferInfo gds_info{};
+    vk::WriteDescriptorSet gds_write{};
+    vk::DescriptorSetLayout descriptor_layout = nullptr;
+    if (uses_gds) {
+      gds_buffer = CreateStorageBuffer(test.name, test.gds_initial, test.gds_initial.size());
+      gds_info = {gds_buffer.buffer, 0, gds_buffer.size};
+      const vk::DescriptorSetLayoutBinding binding{
+          ShaderRecompiler::IR::NativeBinding(ShaderType::Pixel, Kind::Gds),
+          vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eFragment};
+      vk::DescriptorSetLayoutCreateInfo layout_info{};
+      layout_info.sType = vk::StructureType::eDescriptorSetLayoutCreateInfo;
+      layout_info.flags = vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptorKHR;
+      layout_info.bindingCount = 1;
+      layout_info.pBindings = &binding;
+      RequireVk(test.name, "graphics",
+                m_device.createDescriptorSetLayout(&layout_info, nullptr, &descriptor_layout),
+                "vkCreateDescriptorSetLayout");
+      gds_write.sType = vk::StructureType::eWriteDescriptorSet;
+      gds_write.dstBinding = binding.binding;
+      gds_write.descriptorCount = 1;
+      gds_write.descriptorType = vk::DescriptorType::eStorageBuffer;
+      gds_write.pBufferInfo = &gds_info;
+    }
+
     vk::PipelineLayoutCreateInfo pipeline_layout_info{};
     pipeline_layout_info.sType = vk::StructureType::ePipelineLayoutCreateInfo;
+    pipeline_layout_info.setLayoutCount = uses_gds ? 1u : 0u;
+    pipeline_layout_info.pSetLayouts = &descriptor_layout;
     pipeline_layout_info.pushConstantRangeCount =
         push_constant_range.size != 0 ? 1u : 0u;
     pipeline_layout_info.pPushConstantRanges =
@@ -19910,6 +20223,10 @@ public:
       }
       cmd.beginRendering(rendering);
       cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+      if (uses_gds) {
+        cmd.pushDescriptorSetKHR(vk::PipelineBindPoint::eGraphics, pipeline_layout, 0, 1,
+                                 &gds_write);
+      }
       if (push_constant_range.size != 0) {
         ShaderRecompiler::IR::PushData push_data;
         if (object_id) {
@@ -19937,6 +20254,8 @@ public:
 
     m_device.destroyPipeline(pipeline, nullptr);
     m_device.destroyPipelineLayout(pipeline_layout, nullptr);
+    m_device.destroyDescriptorSetLayout(descriptor_layout, nullptr);
+    DestroyBuffer(&gds_buffer);
     m_device.destroyShaderModule(fragment_module, nullptr);
     m_device.destroyShaderModule(vertex_module, nullptr);
     DestroyBuffer(&vertex_buffer);
@@ -21426,8 +21745,9 @@ private:
             "shaderStorageImageWriteWithoutFormat is not supported");
     Require("VulkanHarness", "dispatch",
             available_features.shaderImageGatherExtended == true &&
+                available_features.shaderResourceMinLod == true &&
                 available_derivatives.computeDerivativeGroupQuads == true,
-            "image gather or compute derivative quads are not supported");
+            "image gather, MinLod or compute derivative quads are not supported");
     Require("VulkanHarness", "dispatch",
             available_features11.storageBuffer16BitAccess == true &&
                 available_features12.storageBuffer8BitAccess == true,
@@ -21471,6 +21791,7 @@ private:
                                 available_features.drawIndirectFirstInstance &&
                                 available_features.multiDrawIndirect &&
                                 available_features.depthBounds &&
+                                available_features.fragmentStoresAndAtomics &&
                                 available_depth_clip.depthClipEnable &&
                                 available_clip_control.depthClipControl &&
                                 available_color_write.colorWriteEnable &&
@@ -21561,6 +21882,7 @@ private:
     device_features.shaderStorageImageWriteWithoutFormat = true;
     device_features.shaderStorageImageMultisample = available_features.shaderStorageImageMultisample;
     device_features.shaderImageGatherExtended = true;
+    device_features.shaderResourceMinLod = true;
     device_features.sampleRateShading = true;
     device_features.shaderInt64 = true;
     device_features.shaderFloat64 = available_features.shaderFloat64;
@@ -21569,6 +21891,7 @@ private:
     device_features.drawIndirectFirstInstance = m_rasterization_supported;
     device_features.multiDrawIndirect = m_rasterization_supported;
     device_features.depthBounds = m_rasterization_supported;
+    device_features.fragmentStoresAndAtomics = m_rasterization_supported;
     device_info.pEnabledFeatures = &device_features;
     std::vector<const char *> device_extensions{
         VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
@@ -22701,6 +23024,23 @@ TestCase Rdna2ScalarOpcodes() {
           {0x11u, 0x11u, 7u, 7u},
           {O::S_MOV_B32, O::S_BITSET1_B32, O::S_SETREG_B32, O::S_ADD_I32,
            O::S_SLEEP, O::V_MOV_B32, O::BUFFER_STORE_DWORD, O::S_ENDPGM}};
+}
+
+TestCase ScalarApertureLimits() {
+  using O = ShaderOpcode;
+
+  std::vector<u32> code;
+  code.push_back(EncodeSop1(0x04, 20, 236));
+  AppendStoreSgprPair(&code, 20, 0);
+  code.push_back(EncodeSop1(0x04, 20, 238));
+  AppendStoreSgprPair(&code, 20, 2);
+  AppendEnd(&code);
+
+  return {"ScalarApertureLimits",
+          code,
+          {},
+          {0xffffffffu, 0x80000000u, 0xffffffffu, 0x70000000u},
+          {O::S_MOV_B64, O::V_MOV_B32, O::BUFFER_STORE_DWORD, O::S_ENDPGM}};
 }
 
 TestCase ScalarTrapDisabledFallsThroughExactRaw() {
@@ -39091,6 +39431,48 @@ TestCase ImageGatherExplicitLod() {
   return test;
 }
 
+TestCase ImageSampleLodClamp() {
+  using O = ShaderOpcode;
+
+  // _cl clamps the computed LOD from below: compute's implicit LOD and zero
+  // derivatives would both select mip 0, so a clamp of 1 must read mip 1.
+  std::vector<u32> code;
+  AppendVMovU32(&code, 20, 0);
+  AppendVMovU32(&code, 21, 0);
+  AppendVMovU32(&code, 22, 0);
+  AppendVMovU32(&code, 23, 0);
+  AppendVMovLiteral(&code, 24, 0x3f000000u);
+  AppendVMovLiteral(&code, 25, 0x3f000000u);
+  AppendVMovLiteral(&code, 26, 0x3f800000u);
+  code.push_back(EncodeMimg0(0x21, 0x1));
+  code.push_back(EncodeMimg1(0, 24, 0, 2));
+  code.push_back(EncodeMimg0(0x23, 0x1));
+  code.push_back(EncodeMimg1(1, 20, 0, 2));
+  AppendStoreVgpr(&code, 0, 0);
+  AppendStoreVgpr(&code, 1, 1);
+  AppendEnd(&code);
+
+  TestCase test;
+  test.name = "ImageSampleLodClamp";
+  test.code = std::move(code);
+  test.opcodes = {O::V_MOV_B32, O::IMAGE_SAMPLE, O::BUFFER_STORE_DWORD, O::S_ENDPGM};
+  test.expected = std::vector<u32>(2, 0x41000000u);
+  test.sampled_image_rgba_mips = {std::vector<u32>(4 * 4 * 4, 0x3f800000u),
+                                 std::vector<u32>(2 * 2 * 4, 0x41000000u)};
+  test.user_data = MakeSampledTextureData(Prospero::BufferFormat::k32_32_32_32Float);
+  test.user_data[1] |= 3u << 30u;
+  test.user_data[2] = 3u << 14u;
+  test.user_data[3] |= 1u << 16u;
+  test.user_data[8] = 0x92u;
+  test.user_data[9] = 0xfff000u;
+  test.user_data[10] = 0x05000000u;
+  test.user_data[50] = test.expected.size() * sizeof(u32);
+  test.user_data[51] = 3u << 28u;
+  test.has_user_data = true;
+  test.required_spirv = {"MinLod"};
+  return test;
+}
+
 template <u32 mode> TestCase ImageGatherLodPerLane() {
   using O = ShaderOpcode;
   constexpr std::array names{
@@ -40598,6 +40980,50 @@ void CheckFiniteBufferSelection(VulkanHarness &vulkan) {
   }
 }
 
+void CheckStorageBufferBindingOver2GiB(VulkanHarness &vulkan) {
+  // OpArrayLength reads 0 for ranges of 2 GiB or more on NVIDIA; bounds use the pushed binding size.
+  constexpr u32 bytes = 0x80000010u, end = bytes / 4u, last = end - 1u;
+  TestCase test;
+  test.name = "StorageBufferBindingOver2GiB";
+  Require(test.name, "device limit",
+          vulkan.RuntimeContext().GetPhysicalDeviceProperties().limits.maxStorageBufferRange >= bytes,
+          "storage buffer range cannot cover 2 GiB");
+  AppendVMovLiteral(&test.code, 4, last * 4u);
+  AppendVMovLiteral(&test.code, 6, end * 4u);
+  test.code.insert(test.code.end(), {EncodeMubuf0(0x0c), EncodeMubuf1(5, 0, 4),
+                                     EncodeMubuf0(0x0c), EncodeMubuf1(7, 0, 6),
+                                     EncodeMubuf0(0x1c), EncodeMubuf1(5, 0, 6), EncodeSopp(0x0c, 0)});
+  AppendStoreVgpr(&test.code, 5, 4);
+  AppendStoreVgpr(&test.code, 7, 5);
+  AppendEnd(&test.code);
+  test.user_data = MakeStructuredStorageBufferData(0, bytes);
+  test.user_data[50] = 1u << 20u;
+  test.user_data[51] = 3u << 28u;
+  test.has_user_data = true;
+  test.forbidden_spirv = {"OpArrayLength"};
+  const auto compiled = CompileCase(test, vulkan.SubgroupSize());
+  for (const auto &value : compiled.resources.buffers) {
+    ShaderBufferResource descriptor{};
+    std::copy_n(value.dwords.begin(), 4u, descriptor.fields);
+    test.storage_buffer_ranges.emplace_back(descriptor.Base48(), u32(descriptor.GetSize()));
+  }
+  VulkanHarness::Buffer buffer;
+  {
+    std::vector<u32> initial(end + 4u, 0u);
+    initial[5] = 0xdeadbeefu;
+    initial[last] = 0x44444444u;
+    initial[end] = 0xcafebabeu;
+    buffer = vulkan.CreateStorageBuffer(test.name, initial, initial.size());
+  }
+  vulkan.Dispatch(test, compiled, buffer);
+  const auto loads = vulkan.ReadBuffer(test.name, buffer, 2u, 4u);
+  const auto canary = vulkan.ReadBuffer(test.name, buffer, 1u, end);
+  vulkan.DestroyBuffer(&buffer);
+  CompareWords(test, "a load at the last dword, a zero load and a dropped store at the 2 GiB range end",
+               {0x44444444u, 0u, 0xcafebabeu}, {loads[0], loads[1], canary[0]});
+  std::printf("[compute] %-32s ok\n", test.name);
+}
+
 void CheckIndirectBufferStore(VulkanHarness &vulkan) {
   using namespace ShaderRecompiler::IR;
   TestCase test;
@@ -40710,23 +41136,20 @@ void CheckIndirectBufferStore(VulkanHarness &vulkan) {
       test.required_spirv = {"StorageBufferArrayNonUniformIndexing"};
       test.forbidden_spirv.push_back("OpSwitch");
       std::set<u32> nonuniform;
-      std::vector<u32> accessed_pointers;
+      std::vector<u32> stored_pointers;
       u32 prefix_extracts = 0;
       for (size_t offset = 5; offset < compiled.spirv.size();) {
         const auto words = std::span(compiled.spirv).subspan(offset, compiled.spirv[offset] >> 16u);
         const auto opcode = static_cast<spv::Op>(words[0] & 0xffffu);
         if (opcode == spv::OpDecorate && words[2] == spv::DecorationNonUniform)
           nonuniform.insert(words[1]);
-        if (opcode == spv::OpArrayLength) accessed_pointers.push_back(words[3]);
-        if (opcode == spv::OpStore) accessed_pointers.push_back(words[1]);
+        if (opcode == spv::OpStore) stored_pointers.push_back(words[1]);
         if (opcode == spv::OpBitFieldUExtract) ++prefix_extracts;
         offset += words.size();
       }
       Require(test.name, "shared store and nonuniform pointers",
-              prefix_extracts == 1u && accessed_pointers.size() == 2u &&
-                  std::ranges::all_of(accessed_pointers, [&](u32 pointer) {
-                    return nonuniform.contains(pointer);
-                  }),
+              prefix_extracts == 1u && stored_pointers.size() == 1u &&
+                  nonuniform.contains(stored_pointers.front()),
               "indirect store retained static prefixes, was duplicated or lost a NonUniform pointer decoration");
     } else if (single) {
       test.forbidden_spirv.push_back("OpSwitch");
@@ -43829,6 +44252,92 @@ GraphicsCase GraphicsDsAddtidScratchExport() {
            O::DS_READ_ADDTID_B32, O::EXP, O::S_ENDPGM}};
 }
 
+// Covers only pixel 1 of a 2x1 target, so the rest of its quad runs as helper invocations, and
+// starts a GDS counter at 10 in dword 5.
+void CoverOnePixelOfQuad(GraphicsCase *test) {
+  test->width = 2;
+  test->vertices = {0x00000000u, 0xbf800000u, 0, 0, 0, 0,
+                    0x40400000u, 0xbf800000u, 0, 0, 0, 0,
+                    0x00000000u, 0x40400000u, 0, 0, 0, 0};
+  test->gds_initial = {0, 0, 0, 0, 0, 10};
+}
+
+GraphicsCase GraphicsDsAppendSkipsHelperLanes(bool consume) {
+  using O = ShaderOpcode;
+
+  // The EXEC and VCC words exclude the helper lanes. Exports the first counter value, the second
+  // minus the first minus s_bcnt1(exec) (reversed for consume), s_bcnt1(exec), and the EXEC plus
+  // VCC counts after an if/endif on a compare of the interpolant (zero in every lane).
+  const u32 op = consume ? 0x3d : 0x3e;
+  std::vector<u32> code;
+  code.push_back(EncodeVintrp(0x00, 7, 0, 0, 0));
+  code.push_back(EncodeVintrp(0x01, 7, 0, 0, 1));
+  AppendSMovLiteral(&code, 124, 0x100);
+  code.push_back(EncodeDs0(op, 20, true));
+  code.push_back(EncodeDs1(1, 0, 0));
+  code.push_back(EncodeDs0(op, 20, true));
+  code.push_back(EncodeDs1(2, 0, 0));
+  code.push_back(EncodeSop1(0x10, 0, 126));
+  code.push_back(EncodeVop2(0x26, 3, Vgpr(consume ? 1 : 2), consume ? 2 : 1));
+  code.push_back(EncodeVop2(0x27, 3, 0, 3));
+  code.push_back(EncodeVop1(0x06, 4, Vgpr(1)));
+  code.push_back(EncodeVop1(0x05, 5, Vgpr(3)));
+  code.push_back(EncodeVop1(0x06, 6, 0));
+  code.push_back(EncodeVopc(0xc2, InlineU32(0), 7));
+  code.push_back(EncodeSop1(0x24, 2, 106));
+  code.push_back(EncodeSop2(0x11, 126, 126, 2));
+  code.push_back(EncodeSop1(0x10, 1, 126));
+  code.push_back(EncodeSop1(0x10, 4, 106));
+  code.push_back(EncodeSop2(0x00, 1, 1, 4));
+  code.push_back(EncodeVop1(0x06, 7, 1));
+  code.push_back(EncodeExp0(0x00, 0xf));
+  code.push_back(EncodeExp1(4, 5, 6, 7));
+  AppendEnd(&code);
+
+  GraphicsCase test;
+  test.name = consume ? "GraphicsDsConsumeSkipsHelperLanes" : "GraphicsDsAppendSkipsHelperLanes";
+  test.fragment_code = std::move(code);
+  CoverOnePixelOfQuad(&test);
+  test.expected_pixel = {0, 0, 0, 0, 0x41200000u, 0, 0x3f800000u, 0x40000000u};
+  test.opcodes = {O::V_INTERP_P1_F32, O::V_INTERP_P2_F32, O::S_MOV_B32,
+                  consume ? O::DS_CONSUME : O::DS_APPEND, O::S_BCNT1_I32_B64,
+                  O::V_SUB_NC_U32, O::V_SUBREV_NC_U32, O::V_CVT_F32_U32, O::V_CVT_F32_I32,
+                  O::V_CMP_EQ_U32, O::S_AND_SAVEEXEC_B64, O::S_OR_B64, O::S_ADD_U32, O::EXP,
+                  O::S_ENDPGM};
+  return test;
+}
+
+GraphicsCase GraphicsDsOrderedCountSkipsHelperLanes() {
+  using O = ShaderOpcode;
+
+  // A live lane adds the first lane's ADDR value (1) for the wave. Exports the first counter
+  // value and the difference to the second.
+  std::vector<u32> code;
+  code.push_back(EncodeVintrp(0x00, 7, 0, 0, 0));
+  code.push_back(EncodeVintrp(0x01, 7, 0, 0, 1));
+  code.push_back(EncodeVop1(0x01, 2, InlineU32(1)));
+  AppendSMovLiteral(&code, 124, 0x00100000u); // M0 base 0x10; offset0 adds 4: dword 5.
+  code.push_back(EncodeDs0(0x3f, 7, true));
+  code.push_back(EncodeDs1(1, 2, 2));
+  code.push_back(EncodeDs0(0x3f, 7, true));
+  code.push_back(EncodeDs1(3, 2, 2));
+  code.push_back(EncodeVop2(0x26, 4, Vgpr(3), 1));
+  code.push_back(EncodeVop1(0x06, 5, Vgpr(1)));
+  code.push_back(EncodeVop1(0x06, 6, Vgpr(4)));
+  code.push_back(EncodeExp0(0x00, 0xf));
+  code.push_back(EncodeExp1(5, 6, 6, 6));
+  AppendEnd(&code);
+
+  GraphicsCase test;
+  test.name = "GraphicsDsOrderedCountSkipsHelperLanes";
+  test.fragment_code = std::move(code);
+  CoverOnePixelOfQuad(&test);
+  test.expected_pixel = {0, 0, 0, 0, 0x41200000u, 0x3f800000u, 0x3f800000u, 0x3f800000u};
+  test.opcodes = {O::V_INTERP_P1_F32, O::V_INTERP_P2_F32, O::V_MOV_B32, O::S_MOV_B32,
+                  O::DS_ORDERED_COUNT, O::V_SUB_NC_U32, O::V_CVT_F32_U32, O::EXP, O::S_ENDPGM};
+  return test;
+}
+
 GraphicsCase GraphicsDirectSgprPushConstantExport() {
   using O = ShaderOpcode;
 
@@ -44094,6 +44603,7 @@ std::vector<TestCase> MakeCases() {
   AddCase(ExactPushConstantExtent);
   AddCase(ScalarShiftCountsMaskLowBits);
   AddCase(Rdna2ScalarOpcodes);
+  AddCase(ScalarApertureLimits);
   AddCase(ScalarTrapDisabledFallsThroughExactRaw);
   AddCase(ScalarWaitcntDepctrCapturedVmVsrc);
   AddCase(ScalarExtendedArithmetic);
@@ -44614,6 +45124,7 @@ std::vector<TestCase> MakeCases() {
   AddCase(ImageSampleAndGather);
   AddCase(ImageCubeGradientsPreserveDerivatives);
   AddCase(ImageGatherExplicitLod);
+  AddCase(ImageSampleLodClamp);
   AddCase(ImageGatherLodPerLane<0>);
   AddCase(ImageGatherLodPerLane<1>);
   AddCase(ImageGatherLodPerLane<2>);
@@ -44699,6 +45210,9 @@ std::vector<GraphicsCase> MakeGraphicsCases() {
       GraphicsFrontFaceBits(true, true),
       GraphicsFlatInterpolatorExport(),
       GraphicsDsAddtidScratchExport(),
+      GraphicsDsAppendSkipsHelperLanes(false),
+      GraphicsDsAppendSkipsHelperLanes(true),
+      GraphicsDsOrderedCountSkipsHelperLanes(),
       GraphicsDirectSgprPushConstantExport(),
       GraphicsInlineSrtScalarPromotionExport(),
       GraphicsNullVmExportDiscardsInactiveExec(),
@@ -49790,6 +50304,13 @@ void CheckPm4DrawIndirectMultiPacket(RenderContext &renderer) {
       KYTY_PM4(10, Pm4::IT_DRAW_INDIRECT_MULTI, 0), 0,
       auto_packet[2], auto_packet[3], Pm4::SH_NOP, 2, 0, 0, 16, 2};
   check_offsets(auto_multi_packet, hs, {53, 15}, "non-indexed multi-draw offsets");
+  // Word 4 bit 31 has the CP write each subdraw's index, even with no offsets to patch.
+  shaders.SetHsUserSgpr(11, 77);
+  auto_multi_packet[2] = auto_multi_packet[3] = Pm4::SH_NOP;
+  auto_multi_packet[4] = (1u << 31u) | (Pm4::SPI_SHADER_USER_DATA_HS_0 + 11);
+  Require("Pm4DrawIndirectMulti", "multi-draw index",
+          execute(auto_multi_packet.data(), auto_multi_packet.size()) && hs[11] == 1,
+          "multi-draw did not write the last subdraw index");
   arguments = {0, 1, 99, 101};
   auto_packet[2] = Pm4::SH_NOP;
   check_offsets(auto_packet, hs, {53, 101}, "independent destinations");
@@ -50689,6 +51210,13 @@ int main(int argc, char **argv) {
     RunCase(&vulkan, Vop3pIntegerNegationCapturedAndSelectedHalves());
     return 0;
   }
+  if (argc == 2 && std::strcmp(argv[1], "--helper-lanes-only") == 0) {
+    VulkanHarness vulkan;
+    RunGraphicsCase(&vulkan, GraphicsDsAppendSkipsHelperLanes(false));
+    RunGraphicsCase(&vulkan, GraphicsDsAppendSkipsHelperLanes(true));
+    RunGraphicsCase(&vulkan, GraphicsDsOrderedCountSkipsHelperLanes());
+    return 0;
+  }
   if (argc == 2 && std::strcmp(argv[1], "--dpp-only") == 0) {
     VulkanHarness vulkan;
     RunGraphicsCase(&vulkan, GraphicsSparseWaveMinimum());
@@ -51024,6 +51552,7 @@ int main(int argc, char **argv) {
     VulkanHarness vulkan;
     vulkan.CheckComparisonDepthTexture();
     RunCase(&vulkan, ImageGatherExplicitLod());
+    RunCase(&vulkan, ImageSampleLodClamp());
     RunCase(&vulkan, ImageGatherLodPerLane<0>());
     RunCase(&vulkan, ImageGatherLodPerLane<1>());
     RunCase(&vulkan, ImageGatherLodPerLane<2>());
@@ -51761,6 +52290,7 @@ int main(int argc, char **argv) {
   CheckGuardedWaterfallBufferRecords(vulkan);
   CheckGpuSelectedFormattedRecordStore(vulkan);
   CheckFiniteBufferSelection(vulkan);
+  CheckStorageBufferBindingOver2GiB(vulkan);
   CheckRuntimeBufferRecords(vulkan);
   CheckSharedIndirectBufferLoads(vulkan);
   CheckComputeThreadDimensions(vulkan);
@@ -51800,6 +52330,7 @@ int main(int argc, char **argv) {
     vulkan.CheckGraphicsPushConstantBank();
     vulkan.CheckRenderExecutorColorDiscovery();
     vulkan.CheckRenderExecutorColor1DArrayDiscovery();
+    vulkan.CheckColorResolvePlacedTarget();
     vulkan.CheckRenderExecutorColorVolumeDiscovery();
     vulkan.CheckRenderExecutorColorMetadataClear();
     vulkan.CheckSampledDccClear();

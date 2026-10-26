@@ -783,7 +783,15 @@ TextureCache::OverlapResult TextureCache::ResolveOverlap(const ImageInfo& reques
 	if (!cached.registered) {
 		return {merged_id};
 	}
-	if (BcAlias::Matches(requested, cached.info) && !cached.IsCpuDirty()) {
+	// PS5: image heaps keep BC images and raw block views of their layers resident together, so a
+	// raw read of a layer subset with the same levels views the BC image instead of evicting it.
+	const bool raw_view = binding == BindingType::Texture && !requested.IsBlock() &&
+	                      requested.type == cached.info.type &&
+	                      requested.data.address == cached.info.data.address &&
+	                      requested.BlockExtent() == cached.info.BlockExtent() &&
+	                      requested.resources.levels == cached.info.resources.levels &&
+	                      requested.resources.layers < cached.info.resources.layers;
+	if (!raw_view && BcAlias::Matches(requested, cached.info) && !cached.IsCpuDirty()) {
 		BcAlias::Resolve(*this, cached_id, merged_id);
 		return {merged_id};
 	}
@@ -1301,6 +1309,19 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_format) {
 					view_mip   = overlap.mip;
 					view_layer = overlap.layer;
 				}
+			}
+			// PS5: image heaps hold a descriptor per dynamic-resolution extent of a render target,
+			// and only one extent at an address holds data, so heap lookups create no second one.
+			if (!result && desc.heap &&
+			    std::any_of(candidates.begin(), candidates.end(), [&](ImageId id) {
+				    const auto* image = m_slot_images.try_get(id);
+				    return image != nullptr && image->registered &&
+					       image->heap_refs.load(std::memory_order_relaxed) != 0u &&
+					       image->info.data.address == desc.info.data.address &&
+					       image->info.type == desc.info.type &&
+					       image->info.extent != desc.info.extent;
+			    })) {
+				return {};
 			}
 		} else if (block_alias) {
 			for (const auto candidate: candidates) {

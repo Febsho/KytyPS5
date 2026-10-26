@@ -365,7 +365,7 @@ static_assert(static_cast<uint32_t>(DescriptorBindingKind::Count) == 58u);
 
 struct PushData {
 	static constexpr uint32_t DwordCount = 32;
-	static constexpr uint32_t MeshDrawDwordCount = 6;
+	static constexpr uint32_t MeshDrawDwordCount = 5;
 	static constexpr uint32_t NoStart    = UINT32_MAX;
 	std::array<uint32_t, DwordCount> dwords {};
 
@@ -495,9 +495,15 @@ struct Bindings {
 	uint32_t dispatch_thread_dword = PushData::NoStart;
 	uint32_t memory_offset_dword = 0;
 
-	[[nodiscard]] uint32_t ShaderDataDwords() const {
+	// Packed 8-bit binding offsets, then each binding's bound range in bytes: OpArrayLength
+	// reads 0 for ranges of 2 GiB or more on NVIDIA.
+	[[nodiscard]] uint32_t MemorySizeDword() const {
 		return memory_offset_dword +
 		       (descriptor_counts[static_cast<size_t>(DescriptorBindingKind::Buffers)] + 3u) / 4u;
+	}
+	[[nodiscard]] uint32_t ShaderDataDwords() const {
+		return MemorySizeDword() +
+		       descriptor_counts[static_cast<size_t>(DescriptorBindingKind::Buffers)];
 	}
 	[[nodiscard]] bool UsesPushData() const {
 		return push_data_start_dword != PushData::NoStart;
@@ -541,6 +547,7 @@ struct ShaderInfo {
 	bool                            subgroup_shuffle              = false;
 	bool                            subgroup_arithmetic           = false;
 	bool                            subgroup_local_invocation_id  = false;
+	bool                            helper_invocation             = false;
 	bool                            compute_derivatives           = false;
 	bool                            image_gather_extended         = false;
 	bool                            function_lds                  = false;

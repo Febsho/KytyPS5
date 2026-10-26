@@ -843,6 +843,11 @@ bool RenderExecutor::PrepareDrawRenderState(CommandBuffer& buffer, const DrawCal
 		LogDrawPhase(draw.Name(), "GetGraphicsPrograms");
 	}
 	m_context.GetPipelineCache().GetGraphicsPrograms(buffer, state);
+	// Vertex programs beyond the host mesh limits or with unsupported call targets are not
+	// compiled.
+	if (state.vertex_info[0].stage.module == nullptr) {
+		return false;
+	}
 	if (draw.IsIndexed()) {
 		LogDrawPhase(draw.Name(), "ResolveRenderColorTarget");
 	}
@@ -1156,7 +1161,6 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 		if (mesh_active) {
 			draw_data = {draw.index_count,
 			             static_cast<uint32_t>(emit.vertex_offset),
-			             emit.first_instance,
 			             index_source.guest_element_size,
 			             static_cast<uint32_t>(index_source.address),
 			             static_cast<uint32_t>(index_source.address >> 32u)};
@@ -1475,8 +1479,9 @@ bool RenderExecutor::ResolveColorTargets(CommandBuffer& buffer, uint32_t render_
 	cache.MarkGpuWritten(dst.image_id);
 	auto& source      = cache.GetImage(src.image_id);
 	auto& destination = cache.GetImage(dst.image_id);
-	destination.Resolve(source, {src.guest_mip_level, 1, src.guest_array_layer, 1},
-	                    {dst.guest_mip_level, 1, dst.guest_array_layer, 1});
+	destination.Resolve(source,
+	                    {src.desc.view_info.base_level, 1, src.desc.view_info.base_layer, 1},
+	                    {dst.desc.view_info.base_level, 1, dst.desc.view_info.base_layer, 1});
 	return true;
 }
 
